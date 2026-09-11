@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Time Tracker</title>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#0c0c0d; --card:#1c1c1e; --card2:#232325; --border:#2f2f31;
+  --text:#e9e9ea; --muted:#9a9a9d; --green:#4ade80; --red:#ef4444;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+#app{max-width:760px;margin:0 auto;padding:0 16px 80px}
+button,input,select{font:inherit;color:inherit}
+input,select{background:#141416;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+button{background:none;border:none;cursor:pointer}
+
+.tabs{display:flex;gap:32px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tab{padding:14px 2px;font-size:15px;color:var(--muted);border-bottom:2px solid transparent}
+.tab.active{color:var(--green);border-bottom-color:var(--green)}
+
+.card{background:var(--card);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+
+.projectbar select{background:transparent;border:none;font-weight:600;font-size:15px;padding:2px 4px;cursor:pointer}
+.projectbar .also{color:var(--green);font-size:13px}
+.projectbar .also a{color:var(--green);cursor:pointer;text-decoration:underline}
+.icon-btn{opacity:.75;padding:4px 6px;border-radius:6px}
+.icon-btn:hover{opacity:1;background:#2a2a2c}
+.linklike{color:var(--muted);font-size:13px}
+.linklike:hover{color:var(--text)}
+
+.compose{flex:1;display:flex;gap:10px}
+.compose input{flex:1}
+.btn-start{background:var(--green);color:#0b1e10;font-weight:700;border-radius:8px;padding:8px 18px;white-space:nowrap}
+.btn-stop{background:var(--red);color:#fff;font-weight:700;border-radius:8px;padding:8px 16px;white-space:nowrap}
+.clock{color:var(--green);font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600}
+.title-live{font-weight:600;cursor:pointer}
+
+.tagrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{border:1px solid var(--border);border-radius:16px;padding:6px 10px;color:#c9c9ca;display:flex;align-items:center;gap:6px;font-size:13px}
+.chip:hover{border-color:#fff}
+.chip.selected{color:var(--chip-c);border-color:var(--chip-c)}
+.chip .pencil{opacity:.6;font-size:11px}
+.chip .pencil:hover{opacity:1}
+.newtag{color:var(--muted);font-size:13px}
+
+.pill{border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:12px;color:var(--chip-c);border-color:var(--chip-c)}
+
+.daygroup-header{display:flex;justify-content:space-between;font-weight:700;margin:20px 0 8px;padding:0 2px}
+.daygroup-header .tot{color:var(--muted);font-weight:600}
+.entry{background:var(--card);border-radius:8px;padding:12px 16px;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.entry+.entry{margin-top:0;border-top:1px solid var(--border);border-radius:0}
+.entry:first-of-type{border-top-left-radius:8px;border-top-right-radius:8px}
+.entry:last-of-type{border-bottom-left-radius:8px;border-bottom-right-radius:8px}
+.entry-main .title{font-weight:600;margin-bottom:4px}
+.entry-main .meta{color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
+.entry-main .meta b{color:var(--text);font-weight:600}
+.entry-actions{display:flex;gap:4px;flex:none}
+.entry-actions button{font-size:14px}
+
+.editform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
+.editform input[type=text]{flex:1;min-width:120px}
+
+.statcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.statcard{background:var(--card);border-radius:10px;padding:14px 16px}
+.statcard .label{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
+.statcard .val{color:var(--green);font-size:22px;font-weight:700}
+.statcard .sub{color:var(--muted);font-size:12px;margin-top:4px}
+
+.section-label{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin:20px 2px 10px}
+.chart{display:flex;align-items:flex-end;gap:4px;height:120px;padding:0 2px}
+.chart .bar{flex:1;background:var(--green);border-radius:2px 2px 0 0;min-height:2px}
+.chart .bar.empty{background:#333}
+.chart-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding:4px 2px 0}
+
+.tagbar-row{display:grid;grid-template-columns:110px 1fr 90px;align-items:center;gap:10px;margin-bottom:10px}
+.tagbar-row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tagbar-track{background:#3a3a3c;border-radius:4px;height:8px;overflow:hidden}
+.tagbar-fill{height:100%;border-radius:4px}
+.tagbar-row .val{text-align:right;color:var(--muted);font-size:13px}
+
+.floaters{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:50}
+.floater{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.floater .clock{font-size:13px}
+.empty-log{color:var(--muted);padding:20px 2px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+"use strict";
+const PALETTE=['#5b9bf0','#8b6cf0','#ef4444','#4ade80','#a78bfa','#f97316','#ec4899','#fb7185','#eab308','#d946ef','#22c55e','#06b6d4'];
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+
+const state = JSON.parse(localStorage.getItem('tt_state')||'null') || {
+  tab:'timer', currentProjectId:null,
+  projects:[], tags:[], entries:[], timers:{}
+};
+if(!state.currentProjectId && state.projects.length) state.currentProjectId=state.projects[0].id;
+const pending={}; // draft {title, tagIds} per project, not persisted
+let editingEntryId=null;
+
+function save(){ localStorage.setItem('tt_state', JSON.stringify(state)); pushRemote(); }
+function nextColor(list){ return PALETTE[list.length % PALETTE.length]; }
+
+// ---------- cloud sync (optional) ----------
+// Fill these in from a free Firebase project (console.firebase.google.com ->
+// Project settings -> General -> Your apps -> SDK setup and configuration)
+// to enable cross-device sync. Leave blank to run in local-only mode.
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "",
+  projectId: "",
+  storageBucket: "",
+  messagingSenderId: "",
+  appId: ""
+};
+
+let authUser=null, syncDoc=null, pushTimer=null;
+if(firebaseConfig.apiKey){
+  firebase.initializeApp(firebaseConfig);
+  firebase.auth().onAuthStateChanged(user=>{
+    authUser=user;
+    syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
+    if(syncDoc){
+      syncDoc.onSnapshot(snap=>{
+        if(snap.metadata.hasPendingWrites) return; // echo of our own write, already applied
+        const data = snap.data(); if(!data) return;
+        state.projects=data.projects||[]; state.tags=data.tags||[]; state.entries=data.entries||[]; state.timers=data.timers||{};
+        if(!project(state.currentProjectId)) state.currentProjectId = state.projects[0]?.id||null;
+        localStorage.setItem('tt_state', JSON.stringify(state));
+        render();
+      });
+    }
+    render();
+  });
+}
+function pushRemote(){
+  if(!syncDoc) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(()=>{
+    syncDoc.set({projects:state.projects, tags:state.tags, entries:state.entries, timers:state.timers});
+  }, 400);
+}
+
+// ---------- formatting ----------
+function fmtDur(ms){
+  let s=Math.max(0,Math.round(ms/1000));
+  const h=Math.floor(s/3600); s-=h*3600;
+  const m=Math.floor(s/60); s-=m*60;
+  if(h>0) return `${h} h ${m} min`;
+  if(m>0) return `${m} min ${s} sec`;
+  return `${s} sec`;
+}
+function fmtClock(ms){
+  let s=Math.max(0,Math.floor(ms/1000));
+  const h=Math.floor(s/3600); s-=h*3600;
+  const m=Math.floor(s/60); s-=m*60;
+  return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+function fmtTime(ts){ const d=new Date(ts); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function dayKey(ts){ const d=new Date(ts); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
+function dayLabel(ts){ return new Date(ts).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}); }
+function toLocalInput(ts){ const d=new Date(ts); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+
+// ---------- data helpers ----------
+const project = id => state.projects.find(p=>p.id===id);
+const projectTags = pid => state.tags.filter(t=>t.projectId===pid);
+const curProject = () => project(state.currentProjectId);
+function entryDur(e){ return e.end - e.start - (e.pausedMs||0); }
+function timerElapsed(t){ const end=t.pauseStart||Date.now(); return end - t.start - t.pausedMs; }
+
+// ---------- render ----------
+function render(){
+  const app0=document.getElementById('app');
+  if(firebaseConfig.apiKey && !authUser){
+    app0.innerHTML = `
+      <div class="card" style="text-align:center;padding:40px 16px">
+        <p style="color:var(--muted);margin-top:0">Sign in to access your data</p>
+        <button class="btn-start" data-action="sign-in">Sign in with Google</button>
+      </div>`;
+    return;
+  }
+  if(!state.projects.length){
+    app0.innerHTML = `
+      <div class="tabs"><span class="tab active">Timer</span></div>
+      <div class="card row between">
+        <span style="color:var(--muted)">No projects yet</span>
+        <button class="linklike" data-action="new-project">+ New Project</button>
+      </div>`;
+    return;
+  }
+  const p=curProject();
+  const timer=state.timers[p.id];
+  const app=document.getElementById('app');
+  app.innerHTML = `
+    <div class="tabs">
+      <button class="tab ${state.tab==='timer'?'active':''}" data-action="tab" data-tab="timer">Timer</button>
+      <button class="tab ${state.tab==='stats'?'active':''}" data-action="tab" data-tab="stats">Statistics</button>
+    </div>
+    ${renderProjectBar(p)}
+    ${state.tab==='timer' ? renderTimerTab(p,timer) : renderStatsTab(p)}
+    ${renderFloaters()}
+  `;
+}
+
+function renderProjectBar(p){
+  const others = Object.keys(state.timers).filter(id=>id!==p.id);
+  const alsoRunning = others.map(id=>`<a data-action="switch-project" data-id="${id}">${escapeHtml(project(id).name)}</a>`).join(', ');
+  return `
+  <div class="card row between">
+    <div class="row">
+      <span class="dot" style="background:${p.color}"></span>
+      <select data-action="select-project">
+        ${state.projects.map(pr=>`<option value="${pr.id}" ${pr.id===p.id?'selected':''}>${escapeHtml(pr.name)}</option>`).join('')}
+      </select>
+      ${alsoRunning?`<span class="also">&nbsp;·&nbsp;Also running: ${alsoRunning}</span>`:''}
+    </div>
+    <div class="row">
+      <button class="icon-btn" data-action="edit-project" title="Rename / delete project">✎</button>
+      <button class="linklike" data-action="new-project">+ New Project</button>
+      ${authUser?`<span class="linklike" title="${escapeHtml(authUser.email||'')}">${escapeHtml(authUser.displayName||authUser.email||'Signed in')}</span><button class="linklike" data-action="sign-out">Sign out</button>`:''}
+    </div>
+  </div>`;
+}
+
+function renderFloaters(){
+  const ids=Object.keys(state.timers);
+  if(!ids.length) return '';
+  return `<div class="floaters">${ids.map(id=>{
+    const t=state.timers[id], pr=project(id);
+    return `<div class="floater" data-action="switch-project" data-id="${id}">
+      <span class="dot" style="background:${pr.color}"></span>
+      <span>${escapeHtml(t.title)}</span>
+      <span class="clock live-clock" data-start="${t.start}" data-paused="${t.pausedMs}" data-pausestart="${t.pauseStart||''}">${fmtClock(timerElapsed(t))}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function renderTagRow(p, selectedIds){
+  const tags=projectTags(p.id);
+  return `<div class="tagrow">
+    ${tags.map(t=>`<span class="chip ${selectedIds.includes(t.id)?'selected':''}" style="--chip-c:${t.color}" data-action="toggle-tag" data-id="${t.id}">
+        ${escapeHtml(t.name)}<button class="pencil" data-action="edit-tag" data-id="${t.id}">✎</button>
+      </span>`).join('')}
+    <button class="newtag" data-action="new-tag">+ New tag</button>
+  </div>`;
+}
+
+function renderTimerTab(p, timer){
+  const draft = pending[p.id] || {title:'', tagIds:[]};
+  const selected = timer ? timer.tagIds : draft.tagIds;
+  const composeOrRunning = timer ? `
+    <div class="row between">
+      <span class="title-live" data-action="rename-timer">${escapeHtml(timer.title)}</span>
+      <div class="row">
+        <span class="clock live-clock" data-start="${timer.start}" data-paused="${timer.pausedMs}" data-pausestart="${timer.pauseStart||''}">${fmtClock(timerElapsed(timer))}</span>
+        <button class="icon-btn" data-action="pause">${timer.pauseStart?'▶':'⏸'}</button>
+        <button class="icon-btn" data-action="rename-timer">✎</button>
+        <button class="btn-stop" data-action="stop">■ Stop</button>
+      </div>
+    </div>` : `
+    <div class="row">
+      <div class="compose">
+        <input type="text" placeholder="Set a title to your timer" value="${escapeHtml(draft.title)}" data-action="draft-title">
+      </div>
+      <button class="btn-start" data-action="start">▶ Start</button>
+    </div>`;
+  return `<div class="card">${composeOrRunning}${renderTagRow(p, selected)}</div>${renderLog(p)}`;
+}
+
+function renderLog(p){
+  const entries = state.entries.filter(e=>e.projectId===p.id).sort((a,b)=>b.start-a.start);
+  if(!entries.length) return `<div class="empty-log">No sessions logged yet. Start a timer above.</div>`;
+  const groups=[]; const byKey={};
+  for(const e of entries){
+    const k=dayKey(e.start);
+    if(!byKey[k]){ byKey[k]={label:dayLabel(e.start), list:[], total:0}; groups.push(byKey[k]); }
+    byKey[k].list.push(e); byKey[k].total+=entryDur(e);
+  }
+  return groups.map(g=>`
+    <div class="daygroup-header"><span>${g.label}</span><span class="tot">${fmtDur(g.total)}</span></div>
+    <div>${g.list.map(e=>renderEntry(p,e)).join('')}</div>
+  `).join('');
+}
+
+function renderEntry(p,e){
+  if(editingEntryId===e.id) return renderEntryEdit(p,e);
+  const tags=e.tagIds.map(id=>state.tags.find(t=>t.id===id)).filter(Boolean);
+  return `<div class="entry">
+    <div class="entry-main">
+      <div class="title">${escapeHtml(e.title)}</div>
+      <div class="meta">
+        <b>${fmtDur(entryDur(e))}</b>
+        <span>${fmtTime(e.start)} – ${fmtTime(e.end)}</span>
+        ${e.pausedMs?`<span>| Paused time: ${fmtDur(e.pausedMs)}</span>`:''}
+        ${tags.map(t=>`<span class="pill" style="--chip-c:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
+      </div>
+    </div>
+    <div class="entry-actions">
+      <button class="icon-btn" data-action="restart-entry" data-id="${e.id}" title="Start new timer like this">▶</button>
+      <button class="icon-btn" data-action="edit-entry" data-id="${e.id}">✎</button>
+      <button class="icon-btn" data-action="delete-entry" data-id="${e.id}">×</button>
+    </div>
+  </div>`;
+}
+
+function renderEntryEdit(p,e){
+  return `<div class="entry">
+    <form class="editform" data-action="save-entry" data-id="${e.id}">
+      <input type="text" name="title" value="${escapeHtml(e.title)}">
+      <input type="datetime-local" name="start" value="${toLocalInput(e.start)}">
+      <input type="datetime-local" name="end" value="${toLocalInput(e.end)}">
+      ${renderTagRow(p, e.tagIds).replaceAll('data-action="toggle-tag"','data-action="toggle-edit-tag"')}
+      <button class="linklike" type="submit">Save</button>
+      <button class="linklike" type="button" data-action="cancel-edit-entry">Cancel</button>
+    </form>
+  </div>`;
+}
+
+function renderStatsTab(p){
+  const entries = state.entries.filter(e=>e.projectId===p.id);
+  const total = entries.reduce((s,e)=>s+entryDur(e),0);
+  const longest = entries.reduce((a,e)=> !a||entryDur(e)>entryDur(a) ? e : a, null);
+  const byDay={};
+  for(const e of entries){ const k=dayKey(e.start); byDay[k]=(byDay[k]||0)+entryDur(e); }
+  let recordKey=null;
+  for(const k in byDay) if(recordKey===null||byDay[k]>byDay[recordKey]) recordKey=k;
+  const recordDate = recordKey!==null ? entries.find(e=>dayKey(e.start)===recordKey) : null;
+
+  const days=[]; const now=new Date();
+  for(let i=29;i>=0;i--){
+    const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-i);
+    days.push({key:`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`, val: byDay[`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`]||0});
+  }
+  const maxDay=Math.max(1,...days.map(d=>d.val));
+
+  const tagTotals=projectTags(p.id).map(t=>({t, val: entries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)}))
+    .sort((a,b)=>b.val-a.val);
+  const maxTag=Math.max(1,...tagTotals.map(x=>x.val));
+
+  return `
+  <div class="statcards">
+    <div class="statcard"><div class="label">Total Time</div><div class="val">${fmtDur(total)}</div></div>
+    <div class="statcard"><div class="label">Sessions</div><div class="val">${entries.length}</div></div>
+    <div class="statcard"><div class="label">Longest Session</div><div class="val">${longest?fmtDur(entryDur(longest)):'—'}</div><div class="sub">${longest?escapeHtml(longest.title):''}</div></div>
+    <div class="statcard"><div class="label">Day Record</div><div class="val">${recordDate?fmtDur(byDay[recordKey]):'—'}</div><div class="sub">${recordDate?dayLabel(recordDate.start):''}</div></div>
+  </div>
+  <div class="section-label">Last 30 days</div>
+  <div class="chart">${days.map(d=>`<div class="bar ${d.val?'':'empty'}" style="height:${Math.max(2,d.val/maxDay*100)}%" title="${fmtDur(d.val)}"></div>`).join('')}</div>
+  <div class="chart-labels"><span>${days.length?new Date(now.getFullYear(),now.getMonth(),now.getDate()-29).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span><span>today</span></div>
+  <div class="section-label">Time per tag</div>
+  ${tagTotals.length?tagTotals.map(x=>`
+    <div class="tagbar-row">
+      <span class="name" style="color:${x.t.color}">${escapeHtml(x.t.name)}</span>
+      <div class="tagbar-track"><div class="tagbar-fill" style="width:${x.val/maxTag*100}%;background:${x.t.color}"></div></div>
+      <span class="val">${fmtDur(x.val)}</span>
+    </div>`).join(''):`<div class="empty-log">No tags yet.</div>`}
+  `;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- actions ----------
+document.addEventListener('click', e=>{
+  const el = e.target.closest('[data-action]');
+  if(!el) return;
+  const a = el.dataset.action;
+  const p = curProject();
+
+  if(a==='tab'){ state.tab=el.dataset.tab; save(); render(); return; }
+
+  if(a==='switch-project'){ state.currentProjectId=el.dataset.id; editingEntryId=null; save(); render(); return; }
+
+  if(a==='new-project'){
+    const name=prompt('Project name'); if(!name) return;
+    const pr={id:uid(),name:name.trim(),color:nextColor(state.projects)};
+    state.projects.push(pr); state.currentProjectId=pr.id; save(); render(); return;
+  }
+  if(a==='edit-project'){
+    const name=prompt('Rename project (leave blank to cancel)', p.name);
+    if(name===null||!name.trim()) return;
+    p.name=name.trim(); save(); render(); return;
+  }
+
+  if(a==='new-tag'){
+    const name=prompt('Tag name'); if(!name) return;
+    state.tags.push({id:uid(),projectId:p.id,name:name.trim(),color:nextColor(projectTags(p.id))});
+    save(); render(); return;
+  }
+  if(a==='edit-tag'){
+    const t=state.tags.find(t=>t.id===el.dataset.id);
+    const name=prompt('Rename tag (clear text + OK to delete)', t.name);
+    if(name===null) return;
+    if(!name.trim()){
+      if(confirm(`Delete tag "${t.name}"?`)){
+        state.tags=state.tags.filter(x=>x.id!==t.id);
+        state.entries.forEach(en=>en.tagIds=en.tagIds.filter(id=>id!==t.id));
+        Object.values(state.timers).forEach(tm=>tm.tagIds=tm.tagIds.filter(id=>id!==t.id));
+      }
+    } else t.name=name.trim();
+    save(); render(); return;
+  }
+  if(a==='toggle-tag'){
+    const tid=el.dataset.id, timer=state.timers[p.id];
+    if(timer){
+      timer.tagIds = timer.tagIds.includes(tid) ? timer.tagIds.filter(x=>x!==tid) : [...timer.tagIds, tid];
+    } else {
+      const d = pending[p.id] || {title:'',tagIds:[]};
+      d.tagIds = d.tagIds.includes(tid) ? d.tagIds.filter(x=>x!==tid) : [...d.tagIds, tid];
+      pending[p.id]=d;
+    }
+    save(); render(); return;
+  }
+
+  if(a==='start'){
+    const d = pending[p.id] || {title:'',tagIds:[]};
+    state.timers[p.id] = {title: d.title.trim()||'Untitled', tagIds:[...d.tagIds], start: Date.now(), pausedMs:0, pauseStart:null};
+    delete pending[p.id]; save(); render(); return;
+  }
+  if(a==='pause'){
+    const t=state.timers[p.id];
+    if(t.pauseStart){ t.pausedMs += Date.now()-t.pauseStart; t.pauseStart=null; }
+    else t.pauseStart=Date.now();
+    save(); render(); return;
+  }
+  if(a==='rename-timer'){
+    const t=state.timers[p.id];
+    const name=prompt('Timer title', t.title); if(name===null) return;
+    t.title=name.trim()||'Untitled'; save(); render(); return;
+  }
+  if(a==='stop'){
+    const t=state.timers[p.id];
+    const pausedMs = t.pauseStart ? t.pausedMs+(Date.now()-t.pauseStart) : t.pausedMs;
+    state.entries.push({id:uid(), projectId:p.id, title:t.title, tagIds:t.tagIds, start:t.start, end:Date.now(), pausedMs});
+    delete state.timers[p.id]; save(); render(); return;
+  }
+
+  if(a==='restart-entry'){
+    const src=state.entries.find(x=>x.id===el.dataset.id);
+    state.timers[p.id] = {title:src.title, tagIds:[...src.tagIds], start:Date.now(), pausedMs:0, pauseStart:null};
+    save(); render(); return;
+  }
+  if(a==='edit-entry'){ editingEntryId=el.dataset.id; render(); return; }
+  if(a==='cancel-edit-entry'){ editingEntryId=null; render(); return; }
+  if(a==='delete-entry'){
+    if(confirm('Delete this session?')){ state.entries=state.entries.filter(x=>x.id!==el.dataset.id); save(); }
+    render(); return;
+  }
+  if(a==='toggle-edit-tag'){
+    const en=state.entries.find(x=>x.id===editingEntryId), tid=el.dataset.id;
+    en.tagIds = en.tagIds.includes(tid) ? en.tagIds.filter(x=>x!==tid) : [...en.tagIds, tid];
+    save(); render(); return;
+  }
+
+  if(a==='sign-in'){
+    firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider())
+      .catch(err=>alert('Sign-in failed: '+err.message));
+    return;
+  }
+  if(a==='sign-out'){ firebase.auth().signOut(); return; }
+});
+
+document.addEventListener('change', e=>{
+  if(e.target.matches('[data-action="select-project"]')){
+    state.currentProjectId=e.target.value; editingEntryId=null; save(); render();
+  }
+});
+
+document.addEventListener('input', e=>{
+  if(e.target.matches('[data-action="draft-title"]')){
+    const p=curProject();
+    const d=pending[p.id]||{title:'',tagIds:[]}; d.title=e.target.value; pending[p.id]=d;
+  }
+});
+
+document.addEventListener('submit', e=>{
+  const form=e.target.closest('[data-action="save-entry"]');
+  if(!form) return;
+  e.preventDefault();
+  const en=state.entries.find(x=>x.id===form.dataset.id);
+  const fd=new FormData(form);
+  const start=new Date(fd.get('start')).getTime(), end=new Date(fd.get('end')).getTime();
+  en.title=(fd.get('title')||'').trim()||'Untitled';
+  if(!isNaN(start)) en.start=start;
+  if(!isNaN(end)) en.end=Math.max(end, en.start);
+  editingEntryId=null; save(); render();
+});
+
+setInterval(()=>{
+  document.querySelectorAll('.live-clock').forEach(el=>{
+    const start=+el.dataset.start, paused=+el.dataset.paused, pauseStart=el.dataset.pausestart?+el.dataset.pausestart:0;
+    const end = pauseStart || Date.now();
+    el.textContent = fmtClock(end - start - paused);
+  });
+}, 1000);
+
+render();
+</script>
+</body>
+</html>
