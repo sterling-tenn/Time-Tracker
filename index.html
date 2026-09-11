@@ -53,6 +53,7 @@ button{background:none;border:none;cursor:pointer}
 .compose{flex:1;display:flex;gap:10px}
 .compose input{flex:1}
 .btn-start{background:var(--green);color:#0b1e10;font-weight:700;border-radius:8px;padding:8px 18px;white-space:nowrap}
+.btn-start:disabled{background:var(--card2);color:var(--muted);cursor:not-allowed}
 .btn-stop{background:var(--red);color:#fff;font-weight:700;border-radius:8px;padding:8px 16px;white-space:nowrap}
 .clock{color:var(--green);font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:600}
 .title-live{font-weight:600;cursor:pointer}
@@ -369,11 +370,11 @@ function renderTimerTab(p){
     <div class="card">
       <div class="row">
         <div class="compose">
-          <input type="text" placeholder="Set a title to your timer" value="${escapeHtml(draft.title)}" data-action="draft-title">
+          <input type="text" placeholder="Title" value="${escapeHtml(draft.title)}" data-action="draft-title">
         </div>
-        <button class="btn-start" data-action="start">▶ Start</button>
+        <button class="btn-start" data-action="start" ${draft.title.trim()?'':'disabled title="Enter a title to start the timer"'}>▶ Start</button>
       </div>
-      <input type="text" class="desc-input" placeholder="Add a description..." value="${escapeHtml(draft.description||'')}" data-action="draft-desc">
+      <input type="text" class="desc-input" placeholder="(Optional) Description..." value="${escapeHtml(draft.description||'')}" data-action="draft-desc">
       ${renderTagRow(p, draft.tagIds)}
     </div>`;
   return `${running}${composer}${renderLog(p)}`;
@@ -599,8 +600,10 @@ document.addEventListener('click', e=>{
 
   if(a==='start'){
     const d = pending[p.id] || {title:'',tagIds:[]};
+    const title=(d.title||'').trim();
+    if(!title) return; // Start button is disabled until a title is entered; this is just a safety net.
     const id=uid();
-    state.entries.push({id, projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], description:(d.description||'').trim(), start:Date.now(), end:null, pauseStart:null});
+    state.entries.push({id, projectId:p.id, title, tagIds:[...d.tagIds], description:(d.description||'').trim(), start:Date.now(), end:null, pauseStart:null});
     delete pending[p.id]; saveEntry(id); render(); return;
   }
   if(a==='pause'){
@@ -614,7 +617,9 @@ document.addEventListener('click', e=>{
   if(a==='rename-timer'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
     const name=prompt('Timer title', t.title); if(name===null) return;
-    t.title=name.trim()||'Untitled'; saveEntry(t.id); render(); return;
+    const title=name.trim();
+    if(!title){ alert('Title cannot be empty.'); return; }
+    t.title=title; saveEntry(t.id); render(); return;
   }
   if(a==='stop'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
@@ -686,6 +691,15 @@ document.addEventListener('input', e=>{
   if(e.target.matches('[data-action="draft-title"]')){
     const p=curProject();
     const d=pending[p.id]||{title:'',tagIds:[]}; d.title=e.target.value; pending[p.id]=d;
+    // Toggle the Start button directly instead of a full render() so the
+    // title input doesn't lose focus/cursor position while typing.
+    const startBtn=document.querySelector('[data-action="start"]');
+    if(startBtn){
+      const empty=!d.title.trim();
+      startBtn.disabled=empty;
+      if(empty) startBtn.title='Enter a title to start the timer';
+      else startBtn.removeAttribute('title');
+    }
   }
   if(e.target.matches('[data-action="draft-desc"]')){
     const p=curProject();
@@ -716,8 +730,10 @@ document.addEventListener('submit', e=>{
   e.preventDefault();
   const en=state.entries.find(x=>x.id===form.dataset.id);
   const fd=new FormData(form);
+  const title=(fd.get('title')||'').trim();
+  if(!title){ alert('Title cannot be empty.'); return; }
   const start=new Date(fd.get('start')).getTime(), end=new Date(fd.get('end')).getTime();
-  en.title=(fd.get('title')||'').trim()||'Untitled';
+  en.title=title;
   en.description=(fd.get('description')||'').trim();
   if(!isNaN(start)) en.start=start;
   if(!isNaN(end)) en.end=Math.max(end, en.start);
