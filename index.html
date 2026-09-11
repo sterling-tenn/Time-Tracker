@@ -81,6 +81,16 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
 .chip .pencil:hover{opacity:1}
 .newtag{color:var(--muted);font-size:13px}
 
+.tag-editor{width:100%;max-width:260px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-top:8px}
+.project-menu .tag-editor{margin:8px 0 2px}
+.tag-editor input[type=text]{width:100%;margin-bottom:10px}
+.color-swatches{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.swatch{width:24px;height:24px;border-radius:50%;border:2px solid transparent;padding:0;flex:none}
+.swatch.active{border-color:var(--text)}
+.custom-swatch{position:relative;overflow:hidden;display:inline-block;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
+.custom-swatch input{position:absolute;inset:-4px;width:calc(100% + 8px);height:calc(100% + 8px);padding:0;border:none;opacity:0;cursor:pointer}
+.tag-editor .row{margin-top:10px}
+
 .pill{border:1px solid var(--chip-c);background:color-mix(in srgb, var(--chip-c) 18%, transparent);border-radius:12px;padding:2px 8px;font-size:12px;font-weight:600;color:var(--chip-c)}
 
 .daygroup-header{display:flex;justify-content:space-between;font-weight:700;margin:20px 0 8px;padding:0 2px}
@@ -130,16 +140,26 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
 .chart-tooltip .tt-dot{width:8px;height:8px;border-radius:2px;flex:none}
 .chart-tooltip .tt-tagval{color:var(--text);font-weight:600;font-family:var(--mono)}
 
-.tagbar-row{display:grid;grid-template-columns:110px 1fr 90px;align-items:center;gap:10px;margin-bottom:10px}
+.tagbar-row{display:grid;grid-template-columns:110px 1fr 112px;align-items:center;gap:10px;margin-bottom:10px}
 .tagbar-row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tagbar-track{background:#3a3a3c;border-radius:4px;height:8px;overflow:hidden}
 .tagbar-fill{height:100%;border-radius:4px}
-.tagbar-row .val{text-align:right;color:var(--muted);font-size:13px;font-family:var(--mono)}
+.tagbar-row .val{text-align:right;color:var(--muted);font-size:13px;font-family:var(--mono);white-space:nowrap}
 .active-range{color:var(--green)}
 @media (max-width:380px){
-  .tagbar-row{grid-template-columns:78px 1fr 56px;gap:6px}
+  .tagbar-row{grid-template-columns:74px 1fr 88px;gap:6px}
   .tagbar-row .name{font-size:13px}
+  .tagbar-row .val{font-size:11px}
 }
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
+.modal{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+.modal h3{margin:0 0 8px;font-size:16px}
+.modal-detail{color:var(--muted);font-size:13px;margin:0 0 16px}
+.modal-check{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;user-select:none}
+.modal-check input{width:16px;height:16px;flex:none}
+.modal .row{justify-content:flex-end;gap:10px;margin-top:18px}
+.modal .btn-stop:disabled{background:var(--card2);color:var(--muted);cursor:not-allowed;border:1px solid var(--border)}
 
 .floaters{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .floater{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)}
@@ -150,6 +170,7 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
 <body>
 <div id="app"></div>
 <div class="chart-tooltip" id="chart-tooltip"></div>
+<div id="modal-root"></div>
 <script>
 "use strict";
 const PALETTE=['#5b9bf0','#8b6cf0','#ef4444','#4ade80','#a78bfa','#f97316','#ec4899','#fb7185','#eab308','#d946ef','#22c55e','#06b6d4'];
@@ -161,6 +182,10 @@ const state = {
 };
 const pending={}; // draft {title, tagIds} per project, not persisted
 let editingEntryId=null;
+let editingTagId=null; // tag whose color/name popover is open, not persisted
+let tagEditorRendered=false; // reset each render() - see renderTagRow
+let editingProjectId=null; // project whose color/name popover is open (inside the project menu), not persisted
+let pendingDelete=null; // {type:'tag'|'project', id, name, checked}, not persisted - drives the delete-confirmation modal
 let statsRange='30d'; // '7d' | '30d' | '90d' | 'month' | 'all' | 'custom', not persisted
 let customStart=null, customEnd=null; // yyyy-mm-dd, only used when statsRange==='custom'
 let projectMenuOpen=false; // not persisted
@@ -273,7 +298,35 @@ function isRunning(e){ return e.end==null; }
 function entryDur(e){ const end = isRunning(e) ? (e.pauseStart||Date.now()) : e.end; return end - e.start; }
 
 // ---------- render ----------
+// Lives in its own top-level element (outside #app) so it survives whichever
+// early-return branch of render() is active (signed-out, unapproved, no projects, ...).
+function renderModals(){
+  const root=document.getElementById('modal-root');
+  if(!pendingDelete){ root.innerHTML=''; return; }
+  const isProject=pendingDelete.type==='project';
+  const noun=isProject?'project':'tag';
+  const detail=isProject
+    ? 'This also deletes all its tags and logged sessions.'
+    : 'It will be removed from any sessions using it.';
+  root.innerHTML=`<div class="modal-overlay" data-action="cancel-delete">
+    <div class="modal" data-action="modal-noop">
+      <h3>Delete ${noun} "${escapeHtml(pendingDelete.name)}"?</h3>
+      <p class="modal-detail">${detail} This cannot be undone.</p>
+      <label class="modal-check">
+        <input type="checkbox" data-action="confirm-delete-check" ${pendingDelete.checked?'checked':''}>
+        I understand, delete this ${noun}
+      </label>
+      <div class="row">
+        <button class="linklike" data-action="cancel-delete">Cancel</button>
+        <button class="btn-stop" data-action="confirm-delete" ${pendingDelete.checked?'':'disabled'}>Delete</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function render(){
+  tagEditorRendered=false; // a project's tags can appear in several rows (composer, each running timer, the entry being edited) - only open the popover in the first one
+  renderModals();
   const app0=document.getElementById('app');
   if(!authUser){
     app0.innerHTML = `
@@ -342,10 +395,11 @@ function renderProjectBar(p){
         ${projectMenuOpen?`<div class="project-menu">
           ${state.projects.map(pr=>`<div class="project-menu-item" data-action="switch-project" data-id="${pr.id}">
             <span class="check">${pr.id===p.id?'✓':''}</span>
+            <span class="dot" style="background:${pr.color}"></span>
             <span class="pmi-name">${escapeHtml(pr.name)}</span>
-            <button class="pencil" data-action="edit-project-row" data-id="${pr.id}" title="Rename project">✎</button>
-            <button class="pencil" data-action="delete-project-row" data-id="${pr.id}" title="Delete project">×</button>
+            <button class="pencil" data-action="edit-project-row" data-id="${pr.id}" title="Edit project">✎</button>
           </div>`).join('')}
+          ${editingProjectId?renderProjectEditor(project(editingProjectId)):''}
         </div>`:''}
       </div>
       ${alsoRunning?`<span class="also"><span class="dot dot-live" style="background:var(--green)"></span>Also running: ${alsoRunning}</span>`:''}
@@ -371,11 +425,41 @@ function renderFloaters(){
 
 function renderTagRow(p, selectedIds, timerId){
   const tags=projectTags(p.id);
+  let editing = !tagEditorRendered && tags.find(t=>t.id===editingTagId);
+  if(editing) tagEditorRendered=true;
   return `<div class="tagrow">
     ${tags.map(t=>`<span class="chip ${selectedIds.includes(t.id)?'selected':''}" style="--chip-c:${t.color}" data-action="toggle-tag" data-id="${t.id}" ${timerId?`data-timer="${timerId}"`:''}>
         ${escapeHtml(t.name)}<button class="pencil" data-action="edit-tag" data-id="${t.id}">✎</button>
       </span>`).join('')}
     <button class="newtag" data-action="new-tag">+ New tag</button>
+  </div>
+  ${editing?renderTagEditor(editing):''}`;
+}
+
+function renderTagEditor(t){
+  return renderColorEditor(t, {nameAction:'tag-name', colorAction:'pick-tag-color', customAction:'pick-tag-color-custom', deleteAction:'delete-tag', deleteLabel:'Delete tag', doneAction:'cancel-edit-tag'});
+}
+
+function renderProjectEditor(pr){
+  return renderColorEditor(pr, {nameAction:'project-name', colorAction:'pick-project-color', customAction:'pick-project-color-custom', deleteAction:'delete-project-row', deleteLabel:'Delete project', doneAction:'cancel-edit-project'});
+}
+
+// Shared inline rename+color popover for both tags and projects - only the data-action
+// names differ, so the two thin wrappers above just point this at the right ones.
+function renderColorEditor(x, {nameAction, colorAction, customAction, deleteAction, deleteLabel, doneAction}){
+  const customActive=!PALETTE.includes(x.color);
+  return `<div class="tag-editor">
+    <input type="text" data-action="${nameAction}" data-id="${x.id}" value="${escapeHtml(x.name)}" placeholder="Name">
+    <div class="color-swatches">
+      ${PALETTE.map(c=>`<button type="button" class="swatch ${x.color===c?'active':''}" style="background:${c}" data-action="${colorAction}" data-id="${x.id}" data-color="${c}" aria-label="Use color ${c}"></button>`).join('')}
+      <label class="swatch custom-swatch ${customActive?'active':''}" style="${customActive?`background:${x.color}`:''}" title="Custom color">
+        <input type="color" value="${/^#[0-9a-f]{6}$/i.test(x.color)?x.color:'#888888'}" data-action="${customAction}" data-id="${x.id}">
+      </label>
+    </div>
+    <div class="row">
+      <button class="linklike" data-action="${deleteAction}" data-id="${x.id}">${deleteLabel}</button>
+      <button class="linklike" data-action="${doneAction}">Done</button>
+    </div>
   </div>`;
 }
 
@@ -606,18 +690,24 @@ document.addEventListener('touchstart', e=>{
 document.addEventListener('click', e=>{
   const el = e.target.closest('[data-action]');
   if(!el){
-    if(projectMenuOpen){ projectMenuOpen=false; render(); }
+    if(projectMenuOpen){ projectMenuOpen=false; editingProjectId=null; render(); }
     return;
   }
   const a = el.dataset.action;
-  if(projectMenuOpen && a!=='toggle-project-menu') projectMenuOpen=false;
+  // Actions that operate on the still-open project editor shouldn't close the dropdown out from under it.
+  const keepsProjectMenuOpen=new Set(['toggle-project-menu','edit-project-row','pick-project-color','delete-project-row','cancel-edit-project']);
+  if(projectMenuOpen && !keepsProjectMenuOpen.has(a)){ projectMenuOpen=false; editingProjectId=null; }
   const p = curProject();
 
-  if(a==='toggle-project-menu'){ projectMenuOpen=!projectMenuOpen; render(); return; }
+  if(a==='toggle-project-menu'){
+    projectMenuOpen=!projectMenuOpen;
+    if(!projectMenuOpen) editingProjectId=null;
+    render(); return;
+  }
 
   if(a==='tab'){ state.tab=el.dataset.tab; render(); return; }
 
-  if(a==='switch-project'){ state.currentProjectId=el.dataset.id; editingEntryId=null; render(); return; }
+  if(a==='switch-project'){ state.currentProjectId=el.dataset.id; editingEntryId=null; editingTagId=null; render(); return; }
 
   if(a==='new-project'){
     const name=prompt('Project name'); if(!name) return;
@@ -625,21 +715,18 @@ document.addEventListener('click', e=>{
     state.projects.push(pr); state.currentProjectId=pr.id; saveMeta(); render(); return;
   }
   if(a==='edit-project-row'){
+    editingProjectId = editingProjectId===el.dataset.id ? null : el.dataset.id;
+    render(); return;
+  }
+  if(a==='cancel-edit-project'){ editingProjectId=null; render(); return; }
+  if(a==='pick-project-color'){
     const pr=state.projects.find(x=>x.id===el.dataset.id);
-    const name=prompt('Rename project', pr.name);
-    if(name===null||!name.trim()) return;
-    pr.name=name.trim(); saveMeta(); render(); return;
+    pr.color=el.dataset.color; saveMeta(); render(); return;
   }
   if(a==='delete-project-row'){
     const pr=state.projects.find(x=>x.id===el.dataset.id);
-    if(!confirm(`Delete project "${pr.name}"? This also deletes all its tags and logged sessions - this cannot be undone.`)) return;
-    state.projects=state.projects.filter(x=>x.id!==pr.id);
-    state.tags=state.tags.filter(x=>x.projectId!==pr.id);
-    const toRemove=state.entries.filter(e=>e.projectId===pr.id);
-    state.entries=state.entries.filter(e=>e.projectId!==pr.id);
-    toRemove.forEach(e=>deleteEntryRemote(e.id));
-    if(state.currentProjectId===pr.id) state.currentProjectId = state.projects[0]?.id||null;
-    saveMeta(); render(); return;
+    pendingDelete={type:'project', id:pr.id, name:pr.name, checked:false};
+    render(); return;
   }
 
   if(a==='new-tag'){
@@ -648,17 +735,41 @@ document.addEventListener('click', e=>{
     saveMeta(); render(); return;
   }
   if(a==='edit-tag'){
+    editingTagId = editingTagId===el.dataset.id ? null : el.dataset.id;
+    render(); return;
+  }
+  if(a==='cancel-edit-tag'){ editingTagId=null; render(); return; }
+  if(a==='pick-tag-color'){
     const t=state.tags.find(t=>t.id===el.dataset.id);
-    const name=prompt('Rename tag (clear text + OK to delete)', t.name);
-    if(name===null) return;
-    if(!name.trim()){
-      if(confirm(`Delete tag "${t.name}"?`)){
-        state.tags=state.tags.filter(x=>x.id!==t.id);
-        const affected=state.entries.filter(en=>en.tagIds.includes(t.id));
-        affected.forEach(en=>{ en.tagIds=en.tagIds.filter(id=>id!==t.id); saveEntry(en.id); });
-      }
-    } else t.name=name.trim();
-    saveMeta(); render(); return;
+    t.color=el.dataset.color; saveMeta(); render(); return;
+  }
+  if(a==='delete-tag'){
+    const t=state.tags.find(t=>t.id===el.dataset.id);
+    pendingDelete={type:'tag', id:t.id, name:t.name, checked:false};
+    render(); return;
+  }
+
+  if(a==='modal-noop'){ return; } // swallow clicks on the modal body so they don't bubble to the overlay's cancel-delete
+  if(a==='cancel-delete'){ pendingDelete=null; render(); return; }
+  if(a==='confirm-delete'){
+    if(!pendingDelete?.checked) return; // Delete stays disabled until the checkbox is ticked - this is just a safety net
+    if(pendingDelete.type==='project'){
+      const pr=state.projects.find(x=>x.id===pendingDelete.id);
+      state.projects=state.projects.filter(x=>x.id!==pr.id);
+      state.tags=state.tags.filter(x=>x.projectId!==pr.id);
+      const toRemove=state.entries.filter(e=>e.projectId===pr.id);
+      state.entries=state.entries.filter(e=>e.projectId!==pr.id);
+      toRemove.forEach(e=>deleteEntryRemote(e.id));
+      if(state.currentProjectId===pr.id) state.currentProjectId = state.projects[0]?.id||null;
+      editingProjectId=null;
+    } else {
+      const t=state.tags.find(x=>x.id===pendingDelete.id);
+      state.tags=state.tags.filter(x=>x.id!==t.id);
+      const affected=state.entries.filter(en=>en.tagIds.includes(t.id));
+      affected.forEach(en=>{ en.tagIds=en.tagIds.filter(id=>id!==t.id); saveEntry(en.id); });
+      editingTagId=null;
+    }
+    pendingDelete=null; saveMeta(); render(); return;
   }
   if(a==='toggle-tag'){
     const tid=el.dataset.id, timerId=el.dataset.timer;
@@ -791,6 +902,42 @@ document.addEventListener('input', e=>{
     clearTimeout(descSaveTimers[id]);
     descSaveTimers[id]=setTimeout(()=>saveEntry(id), 400);
   }
+  if(e.target.matches('[data-action="tag-name"]')){
+    const id=e.target.dataset.id;
+    const t=state.tags.find(x=>x.id===id); if(!t) return;
+    t.name=e.target.value;
+    clearTimeout(descSaveTimers[id]);
+    descSaveTimers[id]=setTimeout(()=>saveMeta(), 400);
+  }
+  if(e.target.matches('[data-action="project-name"]')){
+    const id=e.target.dataset.id;
+    const pr=state.projects.find(x=>x.id===id); if(!pr) return;
+    pr.name=e.target.value;
+    clearTimeout(descSaveTimers[id]);
+    descSaveTimers[id]=setTimeout(()=>saveMeta(), 400);
+  }
+});
+
+// The native color panel stays open while dragging (which fires 'input' repeatedly) and
+// only settles on 'change' - re-rendering mid-drag would yank the panel out from under
+// the pointer, so the custom picker is committed here instead of in the 'input' handler above.
+document.addEventListener('change', e=>{
+  if(e.target.matches('[data-action="pick-tag-color-custom"]')){
+    const t=state.tags.find(x=>x.id===e.target.dataset.id); if(!t) return;
+    t.color=e.target.value; saveMeta(); render();
+  }
+  if(e.target.matches('[data-action="pick-project-color-custom"]')){
+    const pr=state.projects.find(x=>x.id===e.target.dataset.id); if(!pr) return;
+    pr.color=e.target.value; saveMeta(); render();
+  }
+  if(e.target.matches('[data-action="confirm-delete-check"]')){
+    if(!pendingDelete) return;
+    pendingDelete.checked=e.target.checked; render();
+  }
+});
+
+document.addEventListener('keydown', e=>{
+  if(e.key==='Escape' && pendingDelete){ pendingDelete=null; render(); }
 });
 
 document.addEventListener('submit', e=>{
