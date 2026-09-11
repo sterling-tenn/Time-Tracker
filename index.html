@@ -19,14 +19,16 @@ button,input,select{font:inherit;color:inherit}
 input,select{background:#141416;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
 button{background:none;border:none;cursor:pointer}
 
-.tabs{display:flex;gap:32px;border-bottom:1px solid var(--border);margin-bottom:16px}
-.tab{padding:14px 2px;font-size:15px;color:var(--muted);border-bottom:2px solid transparent}
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:16px}
+.tab{flex:1;text-align:center;padding:14px 2px;font-size:15px;color:var(--muted);border-bottom:2px solid transparent}
 .tab.active{color:var(--green);border-bottom-color:var(--green)}
 
 .card{background:var(--card);border-radius:10px;padding:14px 16px;margin-bottom:14px}
 .row{display:flex;align-items:center;gap:10px}
 .between{justify-content:space-between}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.dot-live{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
 .projectbar select{background:transparent;border:none;font-weight:600;font-size:15px;padding:2px 4px;cursor:pointer}
 .projectbar .also{color:var(--green);font-size:13px}
@@ -245,7 +247,7 @@ function renderFloaters(){
   return `<div class="floaters">${items.map(t=>{
     const pr=project(t.projectId);
     return `<div class="floater" data-action="switch-project" data-id="${t.projectId}">
-      <span class="dot" style="background:${pr.color}"></span>
+      <span class="dot ${t.pauseStart?'':'dot-live'}" style="background:${pr.color}"></span>
       <span>${escapeHtml(t.title)}</span>
       <span class="clock live-clock" data-start="${t.start}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
     </div>`;
@@ -270,6 +272,7 @@ function renderTimerTab(p){
       <div class="row between">
         <span class="title-live" data-action="rename-timer" data-id="${t.id}">${escapeHtml(t.title)}</span>
         <div class="row">
+          <span class="dot ${t.pauseStart?'':'dot-live'}" style="background:${p.color}"></span>
           <span class="clock live-clock" data-start="${t.start}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
           <button class="icon-btn" data-action="pause" data-id="${t.id}">${t.pauseStart?'▶':'⏸'}</button>
           <button class="icon-btn" data-action="rename-timer" data-id="${t.id}">✎</button>
