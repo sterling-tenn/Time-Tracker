@@ -38,7 +38,12 @@ button{background:none;border:none;cursor:pointer}
 .project-menu{position:absolute;top:calc(100% + 6px);left:0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:40}
 .project-menu-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:14px}
 .project-menu-item:hover{background:#2a2a2c}
+.project-menu-item:hover .pencil{opacity:.6}
 .project-menu-item .check{width:14px;flex:none;color:var(--green)}
+.project-menu-item .pmi-name{flex:1}
+.project-menu-item .pencil{opacity:0;font-size:12px;padding:2px 4px;border-radius:4px}
+.project-menu-item .pencil:hover{opacity:1!important;background:#333}
+.topbar{display:flex;justify-content:flex-end;align-items:center;gap:16px;padding:10px 2px;font-size:13px}
 .icon-btn{opacity:.75;padding:4px 6px;border-radius:6px}
 .icon-btn:hover{opacity:1;background:#2a2a2c}
 .linklike{color:var(--muted);font-size:13px}
@@ -226,6 +231,7 @@ function render(){
   }
   if(!state.projects.length){
     app0.innerHTML = `
+      ${renderTopBar()}
       <div class="tabs"><span class="tab active">Timer</span></div>
       <div class="card row between">
         <span style="color:var(--muted)">No projects yet</span>
@@ -236,6 +242,7 @@ function render(){
   const p=curProject();
   const app=document.getElementById('app');
   app.innerHTML = `
+    ${renderTopBar()}
     <div class="tabs">
       <button class="tab ${state.tab==='timer'?'active':''}" data-action="tab" data-tab="timer">Timer</button>
       <button class="tab ${state.tab==='stats'?'active':''}" data-action="tab" data-tab="stats">Statistics</button>
@@ -244,6 +251,14 @@ function render(){
     ${state.tab==='timer' ? renderTimerTab(p) : renderStatsTab(p)}
     ${renderFloaters()}
   `;
+}
+
+function renderTopBar(){
+  return `<div class="topbar">
+    <button class="linklike" data-action="download-data" title="Download all your data as JSON">⬇ Export</button>
+    <span class="linklike" title="${escapeHtml(authUser.email||'')}">${escapeHtml(authUser.displayName||authUser.email||'Signed in')}</span>
+    <button class="linklike" data-action="sign-out">Sign out</button>
+  </div>`;
 }
 
 function renderProjectBar(p){
@@ -258,17 +273,17 @@ function renderProjectBar(p){
         <button class="project-btn" data-action="toggle-project-menu">${escapeHtml(p.name)}<span class="caret">⌄</span></button>
         ${projectMenuOpen?`<div class="project-menu">
           ${state.projects.map(pr=>`<div class="project-menu-item" data-action="switch-project" data-id="${pr.id}">
-            <span class="check">${pr.id===p.id?'✓':''}</span>${escapeHtml(pr.name)}
+            <span class="check">${pr.id===p.id?'✓':''}</span>
+            <span class="pmi-name">${escapeHtml(pr.name)}</span>
+            <button class="pencil" data-action="edit-project-row" data-id="${pr.id}" title="Rename project">✎</button>
+            <button class="pencil" data-action="delete-project-row" data-id="${pr.id}" title="Delete project">×</button>
           </div>`).join('')}
         </div>`:''}
       </div>
       ${alsoRunning?`<span class="also">&nbsp;·&nbsp;Also running: ${alsoRunning}</span>`:''}
     </div>
     <div class="row">
-      <button class="icon-btn" data-action="edit-project" title="Rename / delete project">✎</button>
       <button class="linklike" data-action="new-project">+ New Project</button>
-      <button class="linklike" data-action="download-data" title="Download all your data as JSON">⬇ Export</button>
-      ${authUser?`<span class="linklike" title="${escapeHtml(authUser.email||'')}">${escapeHtml(authUser.displayName||authUser.email||'Signed in')}</span><button class="linklike" data-action="sign-out">Sign out</button>`:''}
     </div>
   </div>`;
 }
@@ -466,10 +481,22 @@ document.addEventListener('click', e=>{
     const pr={id:uid(),name:name.trim(),color:nextColor(state.projects)};
     state.projects.push(pr); state.currentProjectId=pr.id; saveMeta(); render(); return;
   }
-  if(a==='edit-project'){
-    const name=prompt('Rename project (leave blank to cancel)', p.name);
+  if(a==='edit-project-row'){
+    const pr=state.projects.find(x=>x.id===el.dataset.id);
+    const name=prompt('Rename project', pr.name);
     if(name===null||!name.trim()) return;
-    p.name=name.trim(); saveMeta(); render(); return;
+    pr.name=name.trim(); saveMeta(); render(); return;
+  }
+  if(a==='delete-project-row'){
+    const pr=state.projects.find(x=>x.id===el.dataset.id);
+    if(!confirm(`Delete project "${pr.name}"? This also deletes all its tags and logged sessions - this cannot be undone.`)) return;
+    state.projects=state.projects.filter(x=>x.id!==pr.id);
+    state.tags=state.tags.filter(x=>x.projectId!==pr.id);
+    const toRemove=state.entries.filter(e=>e.projectId===pr.id);
+    state.entries=state.entries.filter(e=>e.projectId!==pr.id);
+    toRemove.forEach(e=>deleteEntryRemote(e.id));
+    if(state.currentProjectId===pr.id) state.currentProjectId = state.projects[0]?.id||null;
+    saveMeta(); render(); return;
   }
 
   if(a==='new-tag'){

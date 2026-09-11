@@ -3,7 +3,7 @@
 having some fun with claude i suppose...
 
 ## Deploy (GitHub Pages, free)
-GitHub Actions-free Pages (Settings → Pages →　Deploy from branch → `main` / `/ (root)`).
+GitHub Actions-free Pages (Settings → Pages → Deploy from branch → `main` / `/ (root)`).
 
 ## Firebase (required)
 
@@ -46,3 +46,45 @@ Use "Create account" the first time on each device (same email/password),
 or "Forgot password?" to reset it via email. Sign in with the same account
 on another device and it syncs in real time; nobody else who opens the URL
 can see or change anything unless they know that email and password.
+
+## Storage schema
+
+Everything lives under one Firestore path per account, `tt/{uid}`:
+
+```
+tt/{uid}                          document   { projects: [...], tags: [...] }
+tt/{uid}/entries/{entryId}        subcollection, one document per tracked session
+```
+
+`tt/{uid}` — small, rarely-changing stuff, pushed as one document:
+```js
+{
+  projects: [{ id, name, color }],
+  tags:     [{ id, projectId, name, color }],
+}
+```
+
+`tt/{uid}/entries/{entryId}` — one document per session (the Firestore document
+ID *is* the entry's id, so it isn't duplicated inside the document body):
+```js
+{
+  projectId,           // which project this session belongs to
+  title,
+  tagIds:    [id, ...],
+  start,               // ms timestamp
+  end,                 // ms timestamp, or null while still running
+  pauseStart,          // ms timestamp if currently paused, else null
+}
+```
+
+Sessions are kept in their own subcollection instead of one big array field
+because Firestore caps a single document at 1MiB — with everything in one
+array, that's roughly 5,000 sessions before writes start failing. A
+subcollection has no such cap, so history can grow indefinitely; only an
+individual entry (never an issue, a few hundred bytes) needs to stay under
+the limit.
+
+A running session is just an entry with `end: null` — no separate "timers"
+structure. Pausing doesn't track a cumulative paused duration either; on
+resume (or stop-while-paused), `start` is simply shifted forward by however
+long the pause lasted, so that time is excluded from the total.
