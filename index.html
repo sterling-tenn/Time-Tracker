@@ -30,9 +30,15 @@ button{background:none;border:none;cursor:pointer}
 .dot-live{animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
-.projectbar select{background:transparent;border:none;font-weight:600;font-size:15px;padding:2px 4px;cursor:pointer}
 .projectbar .also{color:var(--green);font-size:13px}
 .projectbar .also a{color:var(--green);cursor:pointer;text-decoration:underline}
+.project-picker{position:relative}
+.project-btn{font-weight:600;font-size:15px;padding:2px 4px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.project-btn .caret{color:var(--muted);font-size:11px}
+.project-menu{position:absolute;top:calc(100% + 6px);left:0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:40}
+.project-menu-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:14px}
+.project-menu-item:hover{background:#2a2a2c}
+.project-menu-item .check{width:14px;flex:none;color:var(--green)}
 .icon-btn{opacity:.75;padding:4px 6px;border-radius:6px}
 .icon-btn:hover{opacity:1;background:#2a2a2c}
 .linklike{color:var(--muted);font-size:13px}
@@ -109,6 +115,7 @@ const state = {
 const pending={}; // draft {title, tagIds} per project, not persisted
 let editingEntryId=null;
 let statsRange='30d'; // '30d' | 'all', not persisted
+let projectMenuOpen=false; // not persisted
 // A running session is just an entry with end=null (pauseStart set while paused).
 
 function save(){ pushRemote(); }
@@ -227,9 +234,14 @@ function renderProjectBar(p){
   <div class="card row between">
     <div class="row">
       <span class="dot" style="background:${p.color}"></span>
-      <select data-action="select-project">
-        ${state.projects.map(pr=>`<option value="${pr.id}" ${pr.id===p.id?'selected':''}>${escapeHtml(pr.name)}</option>`).join('')}
-      </select>
+      <div class="project-picker">
+        <button class="project-btn" data-action="toggle-project-menu">${escapeHtml(p.name)}<span class="caret">⌄</span></button>
+        ${projectMenuOpen?`<div class="project-menu">
+          ${state.projects.map(pr=>`<div class="project-menu-item" data-action="switch-project" data-id="${pr.id}">
+            <span class="check">${pr.id===p.id?'✓':''}</span>${escapeHtml(pr.name)}
+          </div>`).join('')}
+        </div>`:''}
+      </div>
       ${alsoRunning?`<span class="also">&nbsp;·&nbsp;Also running: ${alsoRunning}</span>`:''}
     </div>
     <div class="row">
@@ -415,9 +427,15 @@ function downloadData(){
 // ---------- actions ----------
 document.addEventListener('click', e=>{
   const el = e.target.closest('[data-action]');
-  if(!el) return;
+  if(!el){
+    if(projectMenuOpen){ projectMenuOpen=false; render(); }
+    return;
+  }
   const a = el.dataset.action;
+  if(projectMenuOpen && a!=='toggle-project-menu') projectMenuOpen=false;
   const p = curProject();
+
+  if(a==='toggle-project-menu'){ projectMenuOpen=!projectMenuOpen; render(); return; }
 
   if(a==='tab'){ state.tab=el.dataset.tab; save(); render(); return; }
 
@@ -528,12 +546,6 @@ document.addEventListener('click', e=>{
   if(a==='stats-range'){ statsRange=el.dataset.range; render(); return; }
 
   if(a==='download-data'){ downloadData(); return; }
-});
-
-document.addEventListener('change', e=>{
-  if(e.target.matches('[data-action="select-project"]')){
-    state.currentProjectId=e.target.value; editingEntryId=null; save(); render();
-  }
 });
 
 document.addEventListener('input', e=>{
