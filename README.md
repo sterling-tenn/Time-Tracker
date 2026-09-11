@@ -50,25 +50,25 @@ a Firebase project wired up before it does anything:
 ## Access control (invite-only)
 
 This app is public (public repo, public URL), so signing in isn't the same
-as being allowed in — there's no self sign-up button, and even if someone
-created a Firebase Auth account directly (the client SDK config is public by
-necessity, so that's never fully preventable), it wouldn't matter: the
-Firestore rules above also require an `/allowlist/{email}` document to exist
-before any read/write to that person's data succeeds, and only the admin can
-create those documents.
+as being allowed in. The sign-in screen has a normal "Create account" button
+— there's no point hiding it, since `firebaseConfig` is necessarily public
+for a client-only app, so anyone could call Firebase Auth's sign-up API
+directly regardless (from the browser console, say) even without a button
+for it. That's fine, because account creation isn't the gate: the Firestore
+rules above also require an `/allowlist/{email}` document to exist before
+any read/write to that person's data succeeds, and only the admin can create
+those documents (Firestore rules can't be bypassed client-side). A brand
+new account can sign in but sees "hasn't been approved yet" — nothing loads
+or saves until it's approved.
 
-To grant someone access:
-1. **Firebase Console → Authentication → Users → Add user.** Enter their
-   email and a temporary password, and share it with them (they can change
-   it via "Forgot password?" on the sign-in screen once they're in).
-2. **Firebase Console → Firestore Database → Data → `allowlist` collection
-   → Add document.** Use their exact email (lowercase) as the **document
-   ID**, and leave the fields empty (its existence is all that's checked).
+To approve someone (after they've signed up themselves, or you tell them to):
+**Firebase Console → Firestore Database → Data → `allowlist` collection →
+Add document.** Use their exact email (lowercase) as the **document ID**,
+and leave the fields empty (its existence is all that's checked).
 
-Until step 2 is done, a signed-in account sees "hasn't been approved yet" —
-sign-in works, but no data loads or saves. To revoke access, delete their
-`allowlist` document (their Firestore data stays intact, just inaccessible
-until re-approved) or delete their user under Authentication → Users.
+To revoke access, delete their `allowlist` document (their Firestore data
+stays intact, just inaccessible until re-approved) or delete their user
+under Authentication → Users.
 
 ## Storage schema
 

@@ -232,11 +232,9 @@ function render(){
         <input type="password" name="password" placeholder="Password" required autocomplete="current-password" minlength="6">
         ${authError?`<div style="color:var(--red);font-size:13px">${escapeHtml(authError)}</div>`:''}
         <button class="btn-start" type="submit">Sign in</button>
+        <button class="linklike" type="button" data-action="auth-signup">Create account</button>
         <button class="linklike" type="button" data-action="auth-reset">Forgot password?</button>
-      </form>
-      <p style="max-width:320px;margin:16px auto 0;text-align:center;color:var(--muted);font-size:12px">
-        Accounts are created by the admin - there's no self sign-up.
-      </p>`;
+      </form>`;
     return;
   }
   if(approvalPending){
@@ -603,6 +601,18 @@ document.addEventListener('click', e=>{
     saveEntry(en.id); render(); return;
   }
 
+  if(a==='auth-signup'){
+    // Anyone can create an Auth account - that's unavoidable for a client-only
+    // app (firebaseConfig is public by necessity). It doesn't matter: the
+    // Firestore rules still gate all data behind the allowlist, so a self-signed-up
+    // account gets nothing until the admin approves its email there.
+    const form=el.closest('form');
+    const email=form.email.value.trim(), password=form.password.value;
+    if(!email||password.length<6){ authError='Enter an email and a password (6+ characters).'; render(); return; }
+    firebase.auth().createUserWithEmailAndPassword(email,password)
+      .catch(err=>{ authError=err.message; render(); });
+    return;
+  }
   if(a==='auth-reset'){
     const form=el.closest('form');
     const email=form.email.value.trim();
