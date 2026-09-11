@@ -31,8 +31,8 @@ button{background:none;border:none;cursor:pointer}
 .dot-live{animation:pulse 1.6s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
-.projectbar .also{color:var(--green);font-size:13px}
-.projectbar .also a{color:var(--green);cursor:pointer;text-decoration:underline}
+.also{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+.also a{color:var(--green);cursor:pointer;text-decoration:underline}
 .project-picker{position:relative}
 .project-btn{font-weight:600;font-size:15px;padding:2px 4px;cursor:pointer;display:flex;align-items:center;gap:6px}
 .project-btn .caret{color:var(--muted);font-size:11px}
@@ -330,7 +330,7 @@ function renderProjectBar(p){
           </div>`).join('')}
         </div>`:''}
       </div>
-      ${alsoRunning?`<span class="also">&nbsp;·&nbsp;Also running: ${alsoRunning}</span>`:''}
+      ${alsoRunning?`<span class="also"><span class="dot dot-live" style="background:var(--green)"></span>Also running: ${alsoRunning}</span>`:''}
     </div>
     <div class="row">
       <button class="linklike" data-action="new-project">+ New Project</button>
