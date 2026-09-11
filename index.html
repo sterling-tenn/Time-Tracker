@@ -103,6 +103,18 @@ button{background:none;border:none;cursor:pointer}
 .chart .bar{flex:1;background:var(--green);border-radius:2px 2px 0 0;min-height:2px}
 .chart .bar.empty{background:#333}
 .chart-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding:4px 2px 0}
+.chart-tooltip{
+  position:fixed;top:0;left:0;display:none;z-index:100;pointer-events:none;
+  background:#000;border-radius:8px;padding:8px 12px;box-shadow:0 6px 20px rgba(0,0,0,.5);
+  font-size:13px;white-space:nowrap;
+}
+.chart-tooltip .tt-date{color:var(--muted);margin-bottom:2px}
+.chart-tooltip .tt-val{color:var(--text);font-weight:600}
+.chart-tooltip .tt-tags{margin-top:6px;padding-top:6px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:4px}
+.chart-tooltip .tt-tag{display:flex;align-items:center;gap:16px;justify-content:space-between}
+.chart-tooltip .tt-name{display:flex;align-items:center;gap:6px;color:var(--muted)}
+.chart-tooltip .tt-dot{width:8px;height:8px;border-radius:2px;flex:none}
+.chart-tooltip .tt-tagval{color:var(--text);font-weight:600}
 
 .tagbar-row{display:grid;grid-template-columns:110px 1fr 90px;align-items:center;gap:10px;margin-bottom:10px}
 .tagbar-row .name{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -119,6 +131,7 @@ button{background:none;border:none;cursor:pointer}
 </head>
 <body>
 <div id="app"></div>
+<div class="chart-tooltip" id="chart-tooltip"></div>
 <script>
 "use strict";
 const PALETTE=['#5b9bf0','#8b6cf0','#ef4444','#4ade80','#a78bfa','#f97316','#ec4899','#fb7185','#eab308','#d946ef','#22c55e','#06b6d4'];
@@ -457,18 +470,27 @@ function renderStatsTab(p){
     startDay=new Date(today.getFullYear(),today.getMonth(),today.getDate()-(n-1));
   }
   const spanDays=Math.round((endDay-startDay)/86400000)+1;
+  const projTags=projectTags(p.id);
   const days=[];
   for(let i=0;i<spanDays;i++){
     const d=new Date(startDay.getFullYear(),startDay.getMonth(),startDay.getDate()+i);
     const k=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-    days.push({key:k, val: byDay[k]||0, date:d});
+    const dayEntries=entries.filter(e=>dayKey(e.start)===k);
+    const untaggedVal=dayEntries.filter(e=>!e.tagIds.length).reduce((s,e)=>s+entryDur(e),0);
+    const tagBreakdown=[...projTags.map(t=>({name:t.name,color:t.color,
+        val:dayEntries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)})),
+      {name:'(no tag)',color:'var(--muted)',val:untaggedVal}]
+      .filter(x=>x.val>0).sort((a,b)=> a.name==='(no tag)'?1 : b.name==='(no tag)'?-1 : b.val-a.val);
+    days.push({key:k, val: byDay[k]||0, date:d, tagBreakdown});
   }
   const maxDay=Math.max(1,...days.map(d=>d.val));
   const fmtAxisDate=d=> (d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth()&&d.getDate()===today.getDate())
     ? 'today' : d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
-  const tagTotals=projectTags(p.id).map(t=>({t, val: entries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)}))
-    .sort((a,b)=>b.val-a.val);
+  const untaggedTotal=entries.filter(e=>!e.tagIds.length).reduce((s,e)=>s+entryDur(e),0);
+  const tagTotals=[...projectTags(p.id).map(t=>({t, val: entries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)})),
+      ...(untaggedTotal>0 ? [{t:{name:'(no tag)',color:'var(--muted)'}, val: untaggedTotal}] : [])]
+    .sort((a,b)=> a.t.name==='(no tag)'?1 : b.t.name==='(no tag)'?-1 : b.val-a.val);
   const maxTag=Math.max(1,...tagTotals.map(x=>x.val));
 
   return `
@@ -497,7 +519,7 @@ function renderStatsTab(p){
       <span>0h</span>
     </div>
     <div class="chart-main">
-      <div class="chart">${days.map(d=>`<div class="bar ${d.val?'':'empty'}" style="height:${Math.max(2,d.val/maxDay*100)}%" title="${fmtDur(d.val)}"></div>`).join('')}</div>
+      <div class="chart">${days.map(d=>`<div class="bar ${d.val?'':'empty'}" style="height:${Math.max(2,d.val/maxDay*100)}%" data-date="${escapeHtml(dayLabel(d.date))}" data-val="${escapeHtml(fmtDur(d.val))}" data-tags="${escapeHtml(JSON.stringify(d.tagBreakdown))}"></div>`).join('')}</div>
       <div class="chart-labels"><span>${days.length?fmtAxisDate(days[0].date):''}</span><span>${days.length?fmtAxisDate(days[days.length-1].date):''}</span></div>
     </div>
   </div>
@@ -526,6 +548,28 @@ function downloadData(){
 }
 
 // ---------- actions ----------
+const chartTooltip=document.getElementById('chart-tooltip');
+document.addEventListener('mouseover', e=>{
+  const bar=e.target.closest('.chart .bar');
+  if(!bar) return;
+  const tags=JSON.parse(bar.dataset.tags||'[]');
+  const tagsHtml=tags.length?`<div class="tt-tags">${tags.map(t=>
+    `<div class="tt-tag"><span class="tt-name"><span class="tt-dot" style="background:${t.color}"></span>${escapeHtml(t.name)}</span><span class="tt-tagval">${fmtDur(t.val)}</span></div>`
+  ).join('')}</div>`:'';
+  chartTooltip.innerHTML=`<div class="tt-date">${bar.dataset.date}</div><div class="tt-val">${bar.dataset.val}</div>${tagsHtml}`;
+  chartTooltip.style.left=(e.clientX+14)+'px';
+  chartTooltip.style.top=(e.clientY+14)+'px';
+  chartTooltip.style.display='block';
+});
+document.addEventListener('mousemove', e=>{
+  if(chartTooltip.style.display!=='block') return;
+  if(!e.target.closest('.chart .bar')){ chartTooltip.style.display='none'; return; }
+  chartTooltip.style.left=(e.clientX+14)+'px';
+  chartTooltip.style.top=(e.clientY+14)+'px';
+});
+document.addEventListener('mouseout', e=>{
+  if(e.target.closest('.chart .bar') && !e.relatedTarget?.closest?.('.chart .bar')) chartTooltip.style.display='none';
+});
 document.addEventListener('click', e=>{
   const el = e.target.closest('[data-action]');
   if(!el){
