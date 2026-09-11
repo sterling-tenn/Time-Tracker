@@ -5,11 +5,10 @@ having some fun with claude i suppose...
 ## Deploy (GitHub Pages, free)
 GitHub Actions-free Pages (Settings → Pages →　Deploy from branch → `main` / `/ (root)`).
 
-## Cross-device sync (optional)
+## Firebase (required)
 
-Without any setup, data is saved only in the current browser's `localStorage`,
-no login. To make it follow you across devices — privately, so no one else
-can read or write your data — wire up a free Firebase project:
+All data lives in Firestore — there's no local/offline mode, so the app needs
+a Firebase project wired up before it does anything:
 
 1. Go to https://console.firebase.google.com → **Add project** (free, no
    credit card).
@@ -36,9 +35,8 @@ can read or write your data — wire up a free Firebase project:
 6. Paste those values into the `firebaseConfig` object near the top of the
    `<script>` in `index.html`, commit, and push.
 
-Once configured, visiting the page requires signing in with an email and
-password before showing any data. Use "Create account" the first time on
-each device (same email/password), or "Forgot password?" to reset it via
-email. Sign in with the same account on another device and it syncs in
-real time; nobody else who opens the URL can see or change anything unless
-they know that email and password.
+Visiting the page always requires signing in with an email and password.
+Use "Create account" the first time on each device (same email/password),
+or "Forgot password?" to reset it via email. Sign in with the same account
+on another device and it syncs in real time; nobody else who opens the URL
+can see or change anything unless they know that email and password.
