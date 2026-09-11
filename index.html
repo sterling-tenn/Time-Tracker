@@ -100,23 +100,21 @@ button{background:none;border:none;cursor:pointer}
 const PALETTE=['#5b9bf0','#8b6cf0','#ef4444','#4ade80','#a78bfa','#f97316','#ec4899','#fb7185','#eab308','#d946ef','#22c55e','#06b6d4'];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
-const state = JSON.parse(localStorage.getItem('tt_state')||'null') || {
+const state = {
   tab:'timer', currentProjectId:null,
   projects:[], tags:[], entries:[]
 };
-if(!state.currentProjectId && state.projects.length) state.currentProjectId=state.projects[0].id;
 const pending={}; // draft {title, tagIds} per project, not persisted
 let editingEntryId=null;
 let statsRange='30d'; // '30d' | 'all', not persisted
 // A running session is just an entry with end=null (pauseStart set while paused).
 
-function save(){ localStorage.setItem('tt_state', JSON.stringify(state)); pushRemote(); }
+function save(){ pushRemote(); }
 function nextColor(list){ return PALETTE[list.length % PALETTE.length]; }
 
-// ---------- cloud sync (optional) ----------
-// Fill these in from a free Firebase project (console.firebase.google.com ->
-// Project settings -> General -> Your apps -> SDK setup and configuration)
-// to enable cross-device sync. Leave blank to run in local-only mode.
+// ---------- cloud storage (required - all data lives in Firebase, nothing local) ----------
+// From a Firebase project (console.firebase.google.com -> Project settings ->
+// General -> Your apps -> SDK setup and configuration).
 const firebaseConfig = {
   apiKey: "AIzaSyC1mN9x_lxYlMI9Bl5ZcOwy_nvSeYAu7Ok",
   authDomain: "time-tracker-cadcf.firebaseapp.com",
@@ -127,24 +125,21 @@ const firebaseConfig = {
 };
 
 let authUser=null, syncDoc=null, pushTimer=null, authError=null;
-if(firebaseConfig.apiKey){
-  firebase.initializeApp(firebaseConfig);
-  firebase.auth().onAuthStateChanged(user=>{
-    authUser=user; authError=null;
-    syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
-    if(syncDoc){
-      syncDoc.onSnapshot(snap=>{
-        if(snap.metadata.hasPendingWrites) return; // echo of our own write, already applied
-        const data = snap.data(); if(!data) return;
-        state.projects=data.projects||[]; state.tags=data.tags||[]; state.entries=data.entries||[];
-        if(!project(state.currentProjectId)) state.currentProjectId = state.projects[0]?.id||null;
-        localStorage.setItem('tt_state', JSON.stringify(state));
-        render();
-      });
-    }
-    render();
-  });
-}
+firebase.initializeApp(firebaseConfig);
+firebase.auth().onAuthStateChanged(user=>{
+  authUser=user; authError=null;
+  syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
+  if(syncDoc){
+    syncDoc.onSnapshot(snap=>{
+      if(snap.metadata.hasPendingWrites) return; // echo of our own write, already applied
+      const data = snap.data(); if(!data) return;
+      state.projects=data.projects||[]; state.tags=data.tags||[]; state.entries=data.entries||[];
+      if(!project(state.currentProjectId)) state.currentProjectId = state.projects[0]?.id||null;
+      render();
+    });
+  }
+  render();
+});
 function pushRemote(){
   if(!syncDoc) return;
   clearTimeout(pushTimer);
@@ -178,12 +173,12 @@ const project = id => state.projects.find(p=>p.id===id);
 const projectTags = pid => state.tags.filter(t=>t.projectId===pid);
 const curProject = () => project(state.currentProjectId);
 function isRunning(e){ return e.end==null; }
-function entryDur(e){ const end = isRunning(e) ? (e.pauseStart||Date.now()) : e.end; return end - e.start - (e.pausedMs||0); }
+function entryDur(e){ const end = isRunning(e) ? (e.pauseStart||Date.now()) : e.end; return end - e.start; }
 
 // ---------- render ----------
 function render(){
   const app0=document.getElementById('app');
-  if(firebaseConfig.apiKey && !authUser){
+  if(!authUser){
     app0.innerHTML = `
       <form class="card" style="max-width:320px;margin:60px auto;padding:24px;display:flex;flex-direction:column;gap:10px" data-action="auth-form">
         <p style="color:var(--muted);margin:0 0 4px;text-align:center">Sign in to access your data</p>
@@ -234,7 +229,7 @@ function renderProjectBar(p){
     <div class="row">
       <button class="icon-btn" data-action="edit-project" title="Rename / delete project">✎</button>
       <button class="linklike" data-action="new-project">+ New Project</button>
-      <button class="linklike" data-action="download-data" title="Download all your data as a spreadsheet">⬇ Export</button>
+      <button class="linklike" data-action="download-data" title="Download all your data as JSON">⬇ Export</button>
       ${authUser?`<span class="linklike" title="${escapeHtml(authUser.email||'')}">${escapeHtml(authUser.displayName||authUser.email||'Signed in')}</span><button class="linklike" data-action="sign-out">Sign out</button>`:''}
     </div>
   </div>`;
@@ -248,7 +243,7 @@ function renderFloaters(){
     return `<div class="floater" data-action="switch-project" data-id="${t.projectId}">
       <span class="dot" style="background:${pr.color}"></span>
       <span>${escapeHtml(t.title)}</span>
-      <span class="clock live-clock" data-start="${t.start}" data-paused="${t.pausedMs}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
+      <span class="clock live-clock" data-start="${t.start}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
     </div>`;
   }).join('')}</div>`;
 }
@@ -271,7 +266,7 @@ function renderTimerTab(p){
       <div class="row between">
         <span class="title-live" data-action="rename-timer" data-id="${t.id}">${escapeHtml(t.title)}</span>
         <div class="row">
-          <span class="clock live-clock" data-start="${t.start}" data-paused="${t.pausedMs}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
+          <span class="clock live-clock" data-start="${t.start}" data-pausestart="${t.pauseStart||''}">${fmtClock(entryDur(t))}</span>
           <button class="icon-btn" data-action="pause" data-id="${t.id}">${t.pauseStart?'▶':'⏸'}</button>
           <button class="icon-btn" data-action="rename-timer" data-id="${t.id}">✎</button>
           <button class="btn-stop" data-action="stop" data-id="${t.id}">■ Stop</button>
@@ -316,7 +311,6 @@ function renderEntry(p,e){
       <div class="meta">
         <b>${fmtDur(entryDur(e))}</b>
         <span>${fmtTime(e.start)} – ${fmtTime(e.end)}</span>
-        ${e.pausedMs?`<span>| Paused time: ${fmtDur(e.pausedMs)}</span>`:''}
         ${tags.map(t=>`<span class="pill" style="--chip-c:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
       </div>
     </div>
@@ -400,25 +394,13 @@ function renderStatsTab(p){
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ---------- export ----------
-function csvCell(v){ v=String(v??''); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
-function entryRow(pr, title, tagIds, start, endLabel, durLabel, pausedMs){
-  const tags=tagIds.map(id=>state.tags.find(t=>t.id===id)).filter(Boolean).map(t=>t.name).join('; ');
-  return [pr?pr.name:'(deleted project)', title, tags, dayLabel(start), fmtTime(start), endLabel, durLabel, pausedMs?fmtDur(pausedMs):''];
-}
 function downloadData(){
-  const rows=[['Project','Title','Tags','Date','Start','End','Duration','Paused']];
-  for(const e of [...state.entries].sort((a,b)=>a.start-b.start)){
-    const running=isRunning(e);
-    rows.push(entryRow(project(e.projectId), e.title, e.tagIds, e.start,
-      running?'(running)':fmtTime(e.end),
-      running?fmtDur(entryDur(e))+' so far':fmtDur(entryDur(e)),
-      e.pausedMs));
-  }
-  const csv=rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv'});
+  // Exactly what's stored (and synced to Firebase, if signed in) - no reformatting.
+  const data = {projects:state.projects, tags:state.tags, entries:state.entries};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url; a.download=`time-tracker-export-${new Date().toISOString().slice(0,10)}.csv`;
+  a.href=url; a.download=`time-tracker-export-${new Date().toISOString().slice(0,10)}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -477,12 +459,14 @@ document.addEventListener('click', e=>{
 
   if(a==='start'){
     const d = pending[p.id] || {title:'',tagIds:[]};
-    state.entries.push({id:uid(), projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], start:Date.now(), end:null, pausedMs:0, pauseStart:null});
+    state.entries.push({id:uid(), projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], start:Date.now(), end:null, pauseStart:null});
     delete pending[p.id]; save(); render(); return;
   }
   if(a==='pause'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
-    if(t.pauseStart){ t.pausedMs += Date.now()-t.pauseStart; t.pauseStart=null; }
+    // Paused time isn't tracked separately - resuming just shifts start forward
+    // by however long the pause lasted, so it's excluded from the duration.
+    if(t.pauseStart){ t.start += Date.now()-t.pauseStart; t.pauseStart=null; }
     else t.pauseStart=Date.now();
     save(); render(); return;
   }
@@ -493,14 +477,14 @@ document.addEventListener('click', e=>{
   }
   if(a==='stop'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
-    if(t.pauseStart){ t.pausedMs += Date.now()-t.pauseStart; t.pauseStart=null; }
+    if(t.pauseStart){ t.start += Date.now()-t.pauseStart; t.pauseStart=null; }
     t.end=Date.now();
     save(); render(); return;
   }
 
   if(a==='restart-entry'){
     const src=state.entries.find(x=>x.id===el.dataset.id);
-    state.entries.push({id:uid(), projectId:p.id, title:src.title, tagIds:[...src.tagIds], start:Date.now(), end:null, pausedMs:0, pauseStart:null});
+    state.entries.push({id:uid(), projectId:p.id, title:src.title, tagIds:[...src.tagIds], start:Date.now(), end:null, pauseStart:null});
     save(); render(); return;
   }
   if(a==='edit-entry'){ editingEntryId=el.dataset.id; render(); return; }
@@ -575,9 +559,9 @@ document.addEventListener('submit', e=>{
 
 setInterval(()=>{
   document.querySelectorAll('.live-clock').forEach(el=>{
-    const start=+el.dataset.start, paused=+el.dataset.paused, pauseStart=el.dataset.pausestart?+el.dataset.pausestart:0;
+    const start=+el.dataset.start, pauseStart=el.dataset.pausestart?+el.dataset.pausestart:0;
     const end = pauseStart || Date.now();
-    el.textContent = fmtClock(end - start - paused);
+    el.textContent = fmtClock(end - start);
   });
 }, 1000);
 
