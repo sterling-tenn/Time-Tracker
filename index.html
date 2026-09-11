@@ -123,11 +123,11 @@ const firebaseConfig = {
   appId: ""
 };
 
-let authUser=null, syncDoc=null, pushTimer=null;
+let authUser=null, syncDoc=null, pushTimer=null, authError=null;
 if(firebaseConfig.apiKey){
   firebase.initializeApp(firebaseConfig);
   firebase.auth().onAuthStateChanged(user=>{
-    authUser=user;
+    authUser=user; authError=null;
     syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
     if(syncDoc){
       syncDoc.onSnapshot(snap=>{
@@ -182,10 +182,15 @@ function render(){
   const app0=document.getElementById('app');
   if(firebaseConfig.apiKey && !authUser){
     app0.innerHTML = `
-      <div class="card" style="text-align:center;padding:40px 16px">
-        <p style="color:var(--muted);margin-top:0">Sign in to access your data</p>
-        <button class="btn-start" data-action="sign-in">Sign in with Google</button>
-      </div>`;
+      <form class="card" style="max-width:320px;margin:60px auto;padding:24px;display:flex;flex-direction:column;gap:10px" data-action="auth-form">
+        <p style="color:var(--muted);margin:0 0 4px;text-align:center">Sign in to access your data</p>
+        <input type="email" name="email" placeholder="Email" required autocomplete="email">
+        <input type="password" name="password" placeholder="Password" required autocomplete="current-password" minlength="6">
+        ${authError?`<div style="color:var(--red);font-size:13px">${escapeHtml(authError)}</div>`:''}
+        <button class="btn-start" type="submit">Sign in</button>
+        <button class="linklike" type="button" data-action="auth-signup">Create account</button>
+        <button class="linklike" type="button" data-action="auth-reset">Forgot password?</button>
+      </form>`;
     return;
   }
   if(!state.projects.length){
@@ -460,9 +465,21 @@ document.addEventListener('click', e=>{
     save(); render(); return;
   }
 
-  if(a==='sign-in'){
-    firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider())
-      .catch(err=>alert('Sign-in failed: '+err.message));
+  if(a==='auth-signup'){
+    const form=el.closest('form');
+    const email=form.email.value.trim(), password=form.password.value;
+    if(!email||password.length<6){ authError='Enter an email and a password (6+ characters).'; render(); return; }
+    firebase.auth().createUserWithEmailAndPassword(email,password)
+      .catch(err=>{ authError=err.message; render(); });
+    return;
+  }
+  if(a==='auth-reset'){
+    const form=el.closest('form');
+    const email=form.email.value.trim();
+    if(!email){ authError='Enter your email above first, then click "Forgot password?" again.'; render(); return; }
+    firebase.auth().sendPasswordResetEmail(email)
+      .then(()=>{ authError=null; alert('Password reset email sent to '+email); })
+      .catch(err=>{ authError=err.message; render(); });
     return;
   }
   if(a==='sign-out'){ firebase.auth().signOut(); return; }
@@ -482,6 +499,14 @@ document.addEventListener('input', e=>{
 });
 
 document.addEventListener('submit', e=>{
+  const authForm=e.target.closest('[data-action="auth-form"]');
+  if(authForm){
+    e.preventDefault();
+    const email=authForm.email.value.trim(), password=authForm.password.value;
+    firebase.auth().signInWithEmailAndPassword(email,password)
+      .catch(err=>{ authError=err.message; render(); });
+    return;
+  }
   const form=e.target.closest('[data-action="save-entry"]');
   if(!form) return;
   e.preventDefault();
