@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Time Tracker</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0c0c0d">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
@@ -18,7 +23,7 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 -apple-system
 #app{max-width:760px;margin:0 auto;padding:0 16px 80px}
 button,input,select{font:inherit;color:inherit}
 input,select{background:#141416;border:1px solid var(--border);border-radius:8px;padding:8px 10px}
-button{background:none;border:none;cursor:pointer}
+button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 
 .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:16px}
 .tab{flex:1;text-align:center;padding:14px 2px;font-size:15px;color:var(--muted);border-bottom:2px solid transparent}
@@ -39,15 +44,21 @@ button{background:none;border:none;cursor:pointer}
 .project-menu{position:absolute;top:calc(100% + 6px);left:0;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:180px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:40}
 .project-menu-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:14px}
 .project-menu-item:hover{background:#2a2a2c}
-.project-menu-item:hover .pencil{opacity:.6}
 .project-menu-item .check{width:14px;flex:none;color:var(--green)}
 .project-menu-item .pmi-name{flex:1}
-.project-menu-item .pencil{opacity:0;font-size:12px;padding:2px 4px;border-radius:4px}
-.project-menu-item .pencil:hover{opacity:1!important;background:#333}
-.topbar{display:flex;justify-content:flex-end;align-items:center;gap:16px;padding:10px 2px;font-size:13px}
-.icon-btn{opacity:.75;padding:4px 6px;border-radius:6px}
+.project-menu-item .pencil{opacity:.55;font-size:12px;padding:6px 8px;border-radius:4px}
+.project-menu-item .pencil:hover{opacity:1;background:#333}
+/* On mouse-driven devices, keep the row's edit/delete buttons tucked away until hovered.
+   On touch (no real hover), they stay visible at reduced opacity - there's no hover to reveal them. */
+@media (hover:hover) and (pointer:fine){
+  .project-menu-item .pencil{opacity:0}
+  .project-menu-item:hover .pencil{opacity:.6}
+}
+.topbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:10px 16px;padding:10px 2px;font-size:13px}
+.topbar span.linklike{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:45vw}
+.icon-btn{opacity:.75;padding:8px 9px;border-radius:6px;font-size:15px}
 .icon-btn:hover{opacity:1;background:#2a2a2c}
-.linklike{color:var(--muted);font-size:13px}
+.linklike{color:var(--muted);font-size:13px;padding:4px}
 .linklike:hover{color:var(--text)}
 
 .compose{flex:1;display:flex;gap:10px}
@@ -65,7 +76,7 @@ button{background:none;border:none;cursor:pointer}
 .chip{border:1px solid var(--border);border-radius:16px;padding:6px 10px;color:#c9c9ca;display:flex;align-items:center;gap:6px;font-size:13px}
 .chip:hover{border-color:#fff}
 .chip.selected{color:var(--chip-c);border-color:var(--chip-c)}
-.chip .pencil{opacity:.6;font-size:11px}
+.chip .pencil{opacity:.6;font-size:11px;padding:4px}
 .chip .pencil:hover{opacity:1}
 .newtag{color:var(--muted);font-size:13px}
 
@@ -80,7 +91,7 @@ button{background:none;border:none;cursor:pointer}
 .entry-main .title{font-weight:600;margin-bottom:4px}
 .entry-main .meta{color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px}
 .entry-main .meta b{color:var(--text);font-weight:600}
-.entry-actions{display:flex;gap:4px;flex:none}
+.entry-actions{display:flex;gap:6px;flex:none}
 .entry-actions button{font-size:14px}
 
 .editform{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
@@ -122,6 +133,10 @@ button{background:none;border:none;cursor:pointer}
 .tagbar-fill{height:100%;border-radius:4px}
 .tagbar-row .val{text-align:right;color:var(--muted);font-size:13px}
 .active-range{color:var(--green)}
+@media (max-width:380px){
+  .tagbar-row{grid-template-columns:78px 1fr 56px;gap:6px}
+  .tagbar-row .name{font-size:13px}
+}
 
 .floaters{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:50}
 .floater{background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.4)}
@@ -549,14 +564,17 @@ function downloadData(){
 
 // ---------- actions ----------
 const chartTooltip=document.getElementById('chart-tooltip');
-document.addEventListener('mouseover', e=>{
-  const bar=e.target.closest('.chart .bar');
-  if(!bar) return;
+function tooltipHtml(bar){
   const tags=JSON.parse(bar.dataset.tags||'[]');
   const tagsHtml=tags.length?`<div class="tt-tags">${tags.map(t=>
     `<div class="tt-tag"><span class="tt-name"><span class="tt-dot" style="background:${t.color}"></span>${escapeHtml(t.name)}</span><span class="tt-tagval">${fmtDur(t.val)}</span></div>`
   ).join('')}</div>`:'';
-  chartTooltip.innerHTML=`<div class="tt-date">${bar.dataset.date}</div><div class="tt-val">${bar.dataset.val}</div>${tagsHtml}`;
+  return `<div class="tt-date">${bar.dataset.date}</div><div class="tt-val">${bar.dataset.val}</div>${tagsHtml}`;
+}
+document.addEventListener('mouseover', e=>{
+  const bar=e.target.closest('.chart .bar');
+  if(!bar) return;
+  chartTooltip.innerHTML=tooltipHtml(bar);
   chartTooltip.style.left=(e.clientX+14)+'px';
   chartTooltip.style.top=(e.clientY+14)+'px';
   chartTooltip.style.display='block';
@@ -570,6 +588,18 @@ document.addEventListener('mousemove', e=>{
 document.addEventListener('mouseout', e=>{
   if(e.target.closest('.chart .bar') && !e.relatedTarget?.closest?.('.chart .bar')) chartTooltip.style.display='none';
 });
+// Touch has no hover, so mouseover/mousemove above never fire on phones - tap a bar to
+// show its tooltip instead (positioned above the touch point so the finger doesn't
+// cover it), tap anywhere else to dismiss.
+document.addEventListener('touchstart', e=>{
+  const bar=e.target.closest('.chart .bar');
+  if(!bar){ chartTooltip.style.display='none'; return; }
+  const touch=e.touches[0];
+  chartTooltip.innerHTML=tooltipHtml(bar);
+  chartTooltip.style.left=Math.min(touch.clientX+14, window.innerWidth-180)+'px';
+  chartTooltip.style.top=Math.max(0, touch.clientY-70)+'px';
+  chartTooltip.style.display='block';
+}, {passive:true});
 document.addEventListener('click', e=>{
   const el = e.target.closest('[data-action]');
   if(!el){
@@ -793,6 +823,10 @@ setInterval(()=>{
 }, 1000);
 
 render();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
 </script>
 </body>
 </html>
