@@ -140,10 +140,14 @@ const firebaseConfig = {
 // Schema: tt/{uid} holds the small stuff (projects, tags). Sessions live in their
 // own subcollection, tt/{uid}/entries/{entryId} - one document each - so history
 // can grow without limit instead of bumping into Firestore's 1MiB per-document cap.
-let authUser=null, syncDoc=null, unsubEntries=null, pushTimer=null, authError=null;
+let authUser=null, syncDoc=null, unsubEntries=null, pushTimer=null, authError=null, approvalPending=false;
 firebase.initializeApp(firebaseConfig);
+// Signing in only proves who someone is - it doesn't grant access. Firestore rules
+// require the signed-in email to have an /allowlist/{email} document (added by the
+// admin in the Firebase console) before any read/write to /tt/{uid} succeeds. An
+// unapproved account gets a permission-denied error here, which flips approvalPending.
 firebase.auth().onAuthStateChanged(user=>{
-  authUser=user; authError=null;
+  authUser=user; authError=null; approvalPending=false;
   // Reset in-memory state on every identity change (sign-out, sign-in, switching
   // accounts) so a fresh/different account never briefly shows the previous
   // session's data - it stays cleared until (if) this account's own data loads.
@@ -151,18 +155,19 @@ firebase.auth().onAuthStateChanged(user=>{
   if(unsubEntries){ unsubEntries(); unsubEntries=null; }
   syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
   if(syncDoc){
+    const onDenied = err=>{ if(err.code==='permission-denied'){ approvalPending=true; render(); } };
     syncDoc.onSnapshot(snap=>{
       if(snap.metadata.hasPendingWrites) return; // echo of our own write, already applied
       const data = snap.data(); if(!data) return;
       state.projects=data.projects||[]; state.tags=data.tags||[];
       if(!project(state.currentProjectId)) state.currentProjectId = state.projects[0]?.id||null;
       render();
-    });
+    }, onDenied);
     unsubEntries = syncDoc.collection('entries').onSnapshot(snap=>{
       if(snap.metadata.hasPendingWrites) return;
       state.entries = snap.docs.map(d=>({id:d.id, ...d.data()}));
       render();
-    });
+    }, onDenied);
   }
   render();
 });
@@ -224,9 +229,20 @@ function render(){
         <input type="password" name="password" placeholder="Password" required autocomplete="current-password" minlength="6">
         ${authError?`<div style="color:var(--red);font-size:13px">${escapeHtml(authError)}</div>`:''}
         <button class="btn-start" type="submit">Sign in</button>
-        <button class="linklike" type="button" data-action="auth-signup">Create account</button>
         <button class="linklike" type="button" data-action="auth-reset">Forgot password?</button>
-      </form>`;
+      </form>
+      <p style="max-width:320px;margin:16px auto 0;text-align:center;color:var(--muted);font-size:12px">
+        Accounts are created by the admin - there's no self sign-up.
+      </p>`;
+    return;
+  }
+  if(approvalPending){
+    app0.innerHTML = `
+      <div class="card" style="max-width:360px;margin:60px auto;padding:24px;text-align:center">
+        <p style="color:var(--text);margin-top:0">You're signed in, but this account hasn't been approved yet.</p>
+        <p style="color:var(--muted);font-size:13px">Ask the admin to grant ${escapeHtml(authUser.email||'this account')} access.</p>
+        <button class="linklike" data-action="sign-out">Sign out</button>
+      </div>`;
     return;
   }
   if(!state.projects.length){
@@ -580,14 +596,6 @@ document.addEventListener('click', e=>{
     saveEntry(en.id); render(); return;
   }
 
-  if(a==='auth-signup'){
-    const form=el.closest('form');
-    const email=form.email.value.trim(), password=form.password.value;
-    if(!email||password.length<6){ authError='Enter an email and a password (6+ characters).'; render(); return; }
-    firebase.auth().createUserWithEmailAndPassword(email,password)
-      .catch(err=>{ authError=err.message; render(); });
-    return;
-  }
   if(a==='auth-reset'){
     const form=el.closest('form');
     const email=form.email.value.trim();

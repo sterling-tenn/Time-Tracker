@@ -21,10 +21,16 @@ a Firebase project wired up before it does anything:
    rules_version = '2';
    service cloud.firestore {
      match /databases/{database}/documents {
+       match /allowlist/{email} {
+         allow read: if request.auth != null && request.auth.token.email == email;
+         // No client writes - only the admin adds/removes entries, in the console.
+       }
        match /tt/{uid} {
-         allow read, write: if request.auth != null && request.auth.uid == uid;
+         allow read, write: if request.auth != null && request.auth.uid == uid
+           && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email));
          match /entries/{entryId} {
-           allow read, write: if request.auth != null && request.auth.uid == uid;
+           allow read, write: if request.auth != null && request.auth.uid == uid
+             && exists(/databases/$(database)/documents/allowlist/$(request.auth.token.email));
          }
        }
      }
@@ -34,24 +40,40 @@ a Firebase project wired up before it does anything:
    document under `tt/{your-uid}/entries/` (one collection, unlimited size,
    instead of one big array — Firestore caps a single document at 1MiB, and a
    few years of daily tracking could otherwise get there). This rule means
-   only *you*, signed into that exact account, can ever read or write any of
-   it — no shared secret, no one else can touch it even if they find the page.
+   only *you*, signed into that exact account — and only once it's approved,
+   see below — can ever read or write any of it.
 5. **Project settings → General → Your apps → Add app → Web**, register it
    (no hosting needed), and copy the `firebaseConfig` object it shows you.
 6. Paste those values into the `firebaseConfig` object near the top of the
    `<script>` in `index.html`, commit, and push.
 
-Visiting the page always requires signing in with an email and password.
-Use "Create account" the first time on each device (same email/password),
-or "Forgot password?" to reset it via email. Sign in with the same account
-on another device and it syncs in real time; nobody else who opens the URL
-can see or change anything unless they know that email and password.
+## Access control (invite-only)
+
+This app is public (public repo, public URL), so signing in isn't the same
+as being allowed in — there's no self sign-up button, and even if someone
+created a Firebase Auth account directly (the client SDK config is public by
+necessity, so that's never fully preventable), it wouldn't matter: the
+Firestore rules above also require an `/allowlist/{email}` document to exist
+before any read/write to that person's data succeeds, and only the admin can
+create those documents.
+
+To grant someone access:
+1. **Firebase Console → Authentication → Users → Add user.** Enter their
+   email and a temporary password, and share it with them (they can change
+   it via "Forgot password?" on the sign-in screen once they're in).
+2. **Firebase Console → Firestore Database → Data → `allowlist` collection
+   → Add document.** Use their exact email (lowercase) as the **document
+   ID**, and leave the fields empty (its existence is all that's checked).
+
+Until step 2 is done, a signed-in account sees "hasn't been approved yet" —
+sign-in works, but no data loads or saves. To revoke access, delete their
+`allowlist` document (their Firestore data stays intact, just inaccessible
+until re-approved) or delete their user under Authentication → Users.
 
 ## Storage schema
 
-Everything lives under one Firestore path per account, `tt/{uid}`:
-
 ```
+allowlist/{email}                 document, empty - existence is the approval flag
 tt/{uid}                          document   { projects: [...], tags: [...] }
 tt/{uid}/entries/{entryId}        subcollection, one document per tracked session
 ```
