@@ -23,13 +23,19 @@ a Firebase project wired up before it does anything:
      match /databases/{database}/documents {
        match /tt/{uid} {
          allow read, write: if request.auth != null && request.auth.uid == uid;
+         match /entries/{entryId} {
+           allow read, write: if request.auth != null && request.auth.uid == uid;
+         }
        }
      }
    }
    ```
-   Your data lives at `tt/{your-uid}`. This rule means only *you*, signed
-   into that exact account, can ever read or write it — no shared secret,
-   no one else can touch it even if they find the page.
+   Your projects/tags live at `tt/{your-uid}`; each tracked session is its own
+   document under `tt/{your-uid}/entries/` (one collection, unlimited size,
+   instead of one big array — Firestore caps a single document at 1MiB, and a
+   few years of daily tracking could otherwise get there). This rule means
+   only *you*, signed into that exact account, can ever read or write any of
+   it — no shared secret, no one else can touch it even if they find the page.
 5. **Project settings → General → Your apps → Add app → Web**, register it
    (no hosting needed), and copy the `firebaseConfig` object it shows you.
 6. Paste those values into the `firebaseConfig` object near the top of the

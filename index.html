@@ -118,7 +118,6 @@ let statsRange='30d'; // '30d' | 'all', not persisted
 let projectMenuOpen=false; // not persisted
 // A running session is just an entry with end=null (pauseStart set while paused).
 
-function save(){ pushRemote(); }
 function nextColor(list){ return PALETTE[list.length % PALETTE.length]; }
 
 // ---------- cloud storage (required - all data lives in Firebase, nothing local) ----------
@@ -133,32 +132,53 @@ const firebaseConfig = {
   appId: "1:382064892950:web:00c14a15051814909b2937"
 };
 
-let authUser=null, syncDoc=null, pushTimer=null, authError=null;
+// Schema: tt/{uid} holds the small stuff (projects, tags). Sessions live in their
+// own subcollection, tt/{uid}/entries/{entryId} - one document each - so history
+// can grow without limit instead of bumping into Firestore's 1MiB per-document cap.
+let authUser=null, syncDoc=null, unsubEntries=null, pushTimer=null, authError=null;
 firebase.initializeApp(firebaseConfig);
 firebase.auth().onAuthStateChanged(user=>{
   authUser=user; authError=null;
   // Reset in-memory state on every identity change (sign-out, sign-in, switching
   // accounts) so a fresh/different account never briefly shows the previous
-  // session's data - it stays cleared until (if) this account's own doc loads.
+  // session's data - it stays cleared until (if) this account's own data loads.
   state.projects=[]; state.tags=[]; state.entries=[]; state.currentProjectId=null;
+  if(unsubEntries){ unsubEntries(); unsubEntries=null; }
   syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
   if(syncDoc){
     syncDoc.onSnapshot(snap=>{
       if(snap.metadata.hasPendingWrites) return; // echo of our own write, already applied
       const data = snap.data(); if(!data) return;
-      state.projects=data.projects||[]; state.tags=data.tags||[]; state.entries=data.entries||[];
+      state.projects=data.projects||[]; state.tags=data.tags||[];
       if(!project(state.currentProjectId)) state.currentProjectId = state.projects[0]?.id||null;
+      render();
+    });
+    unsubEntries = syncDoc.collection('entries').onSnapshot(snap=>{
+      if(snap.metadata.hasPendingWrites) return;
+      state.entries = snap.docs.map(d=>({id:d.id, ...d.data()}));
       render();
     });
   }
   render();
 });
-function pushRemote(){
+// Projects/tags are small and change rarely - keep pushing the whole pair as one doc.
+function saveMeta(){
   if(!syncDoc) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(()=>{
-    syncDoc.set({projects:state.projects, tags:state.tags, entries:state.entries});
+    syncDoc.set({projects:state.projects, tags:state.tags});
   }, 400);
+}
+// Each session is its own document, written directly (no debounce needed - these
+// are one-shot clicks/prompts, never live-typing).
+function saveEntry(id){
+  if(!syncDoc) return;
+  const {id:_drop, ...data} = state.entries.find(x=>x.id===id);
+  syncDoc.collection('entries').doc(id).set(data);
+}
+function deleteEntryRemote(id){
+  if(!syncDoc) return;
+  syncDoc.collection('entries').doc(id).delete();
 }
 
 // ---------- formatting ----------
@@ -437,25 +457,25 @@ document.addEventListener('click', e=>{
 
   if(a==='toggle-project-menu'){ projectMenuOpen=!projectMenuOpen; render(); return; }
 
-  if(a==='tab'){ state.tab=el.dataset.tab; save(); render(); return; }
+  if(a==='tab'){ state.tab=el.dataset.tab; render(); return; }
 
-  if(a==='switch-project'){ state.currentProjectId=el.dataset.id; editingEntryId=null; save(); render(); return; }
+  if(a==='switch-project'){ state.currentProjectId=el.dataset.id; editingEntryId=null; render(); return; }
 
   if(a==='new-project'){
     const name=prompt('Project name'); if(!name) return;
     const pr={id:uid(),name:name.trim(),color:nextColor(state.projects)};
-    state.projects.push(pr); state.currentProjectId=pr.id; save(); render(); return;
+    state.projects.push(pr); state.currentProjectId=pr.id; saveMeta(); render(); return;
   }
   if(a==='edit-project'){
     const name=prompt('Rename project (leave blank to cancel)', p.name);
     if(name===null||!name.trim()) return;
-    p.name=name.trim(); save(); render(); return;
+    p.name=name.trim(); saveMeta(); render(); return;
   }
 
   if(a==='new-tag'){
     const name=prompt('Tag name'); if(!name) return;
     state.tags.push({id:uid(),projectId:p.id,name:name.trim(),color:nextColor(projectTags(p.id))});
-    save(); render(); return;
+    saveMeta(); render(); return;
   }
   if(a==='edit-tag'){
     const t=state.tags.find(t=>t.id===el.dataset.id);
@@ -464,28 +484,32 @@ document.addEventListener('click', e=>{
     if(!name.trim()){
       if(confirm(`Delete tag "${t.name}"?`)){
         state.tags=state.tags.filter(x=>x.id!==t.id);
-        state.entries.forEach(en=>en.tagIds=en.tagIds.filter(id=>id!==t.id));
+        const affected=state.entries.filter(en=>en.tagIds.includes(t.id));
+        affected.forEach(en=>{ en.tagIds=en.tagIds.filter(id=>id!==t.id); saveEntry(en.id); });
       }
     } else t.name=name.trim();
-    save(); render(); return;
+    saveMeta(); render(); return;
   }
   if(a==='toggle-tag'){
     const tid=el.dataset.id, timerId=el.dataset.timer;
     if(timerId){
       const t=state.entries.find(x=>x.id===timerId);
       t.tagIds = t.tagIds.includes(tid) ? t.tagIds.filter(x=>x!==tid) : [...t.tagIds, tid];
+      saveEntry(timerId);
     } else {
+      // Draft (not-yet-started) tag picks are local only - nothing to sync until Start.
       const d = pending[p.id] || {title:'',tagIds:[]};
       d.tagIds = d.tagIds.includes(tid) ? d.tagIds.filter(x=>x!==tid) : [...d.tagIds, tid];
       pending[p.id]=d;
     }
-    save(); render(); return;
+    render(); return;
   }
 
   if(a==='start'){
     const d = pending[p.id] || {title:'',tagIds:[]};
-    state.entries.push({id:uid(), projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], start:Date.now(), end:null, pauseStart:null});
-    delete pending[p.id]; save(); render(); return;
+    const id=uid();
+    state.entries.push({id, projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], start:Date.now(), end:null, pauseStart:null});
+    delete pending[p.id]; saveEntry(id); render(); return;
   }
   if(a==='pause'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
@@ -493,35 +517,40 @@ document.addEventListener('click', e=>{
     // by however long the pause lasted, so it's excluded from the duration.
     if(t.pauseStart){ t.start += Date.now()-t.pauseStart; t.pauseStart=null; }
     else t.pauseStart=Date.now();
-    save(); render(); return;
+    saveEntry(t.id); render(); return;
   }
   if(a==='rename-timer'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
     const name=prompt('Timer title', t.title); if(name===null) return;
-    t.title=name.trim()||'Untitled'; save(); render(); return;
+    t.title=name.trim()||'Untitled'; saveEntry(t.id); render(); return;
   }
   if(a==='stop'){
     const t=state.entries.find(x=>x.id===el.dataset.id);
     if(t.pauseStart){ t.start += Date.now()-t.pauseStart; t.pauseStart=null; }
     t.end=Date.now();
-    save(); render(); return;
+    saveEntry(t.id); render(); return;
   }
 
   if(a==='restart-entry'){
     const src=state.entries.find(x=>x.id===el.dataset.id);
-    state.entries.push({id:uid(), projectId:p.id, title:src.title, tagIds:[...src.tagIds], start:Date.now(), end:null, pauseStart:null});
-    save(); render(); return;
+    const id=uid();
+    state.entries.push({id, projectId:p.id, title:src.title, tagIds:[...src.tagIds], start:Date.now(), end:null, pauseStart:null});
+    saveEntry(id); render(); return;
   }
   if(a==='edit-entry'){ editingEntryId=el.dataset.id; render(); return; }
   if(a==='cancel-edit-entry'){ editingEntryId=null; render(); return; }
   if(a==='delete-entry'){
-    if(confirm('Delete this session?')){ state.entries=state.entries.filter(x=>x.id!==el.dataset.id); save(); }
+    if(confirm('Delete this session?')){
+      const id=el.dataset.id;
+      state.entries=state.entries.filter(x=>x.id!==id);
+      deleteEntryRemote(id);
+    }
     render(); return;
   }
   if(a==='toggle-edit-tag'){
     const en=state.entries.find(x=>x.id===editingEntryId), tid=el.dataset.id;
     en.tagIds = en.tagIds.includes(tid) ? en.tagIds.filter(x=>x!==tid) : [...en.tagIds, tid];
-    save(); render(); return;
+    saveEntry(en.id); render(); return;
   }
 
   if(a==='auth-signup'){
@@ -573,7 +602,7 @@ document.addEventListener('submit', e=>{
   en.title=(fd.get('title')||'').trim()||'Untitled';
   if(!isNaN(start)) en.start=start;
   if(!isNaN(end)) en.end=Math.max(end, en.start);
-  editingEntryId=null; save(); render();
+  editingEntryId=null; saveEntry(en.id); render();
 });
 
 setInterval(()=>{
