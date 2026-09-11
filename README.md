@@ -92,6 +92,7 @@ ID *is* the entry's id, so it isn't duplicated inside the document body):
 {
   projectId,           // which project this session belongs to
   title,
+  description,         // free-text notes, optional
   tagIds:    [id, ...],
   start,               // ms timestamp
   end,                 // ms timestamp, or null while still running

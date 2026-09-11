@@ -57,6 +57,9 @@ button{background:none;border:none;cursor:pointer}
 .title-live{font-weight:600;cursor:pointer}
 
 .tagrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.desc-input{width:100%;margin-top:10px;color:var(--muted);font-size:13px}
+.desc-input:focus{color:var(--text)}
+.entry-desc{color:var(--muted);font-size:13px;margin-top:4px}
 .chip{border:1px solid var(--border);border-radius:16px;padding:6px 10px;color:#c9c9ca;display:flex;align-items:center;gap:6px;font-size:13px}
 .chip:hover{border-color:#fff}
 .chip.selected{color:var(--chip-c);border-color:var(--chip-c)}
@@ -328,7 +331,7 @@ function renderTagRow(p, selectedIds, timerId){
 }
 
 function renderTimerTab(p){
-  const draft = pending[p.id] || {title:'', tagIds:[]};
+  const draft = pending[p.id] || {title:'', tagIds:[], description:''};
   const runningTimers = state.entries.filter(e=>e.projectId===p.id && isRunning(e));
   const running = runningTimers.map(t=>`
     <div class="card">
@@ -342,6 +345,7 @@ function renderTimerTab(p){
           <button class="btn-stop" data-action="stop" data-id="${t.id}">■ Stop</button>
         </div>
       </div>
+      <input type="text" class="desc-input" placeholder="Add a description..." value="${escapeHtml(t.description||'')}" data-action="entry-desc" data-id="${t.id}">
       ${renderTagRow(p, t.tagIds, t.id)}
     </div>`).join('');
   const composer = `
@@ -352,6 +356,7 @@ function renderTimerTab(p){
         </div>
         <button class="btn-start" data-action="start">▶ Start</button>
       </div>
+      <input type="text" class="desc-input" placeholder="Add a description..." value="${escapeHtml(draft.description||'')}" data-action="draft-desc">
       ${renderTagRow(p, draft.tagIds)}
     </div>`;
   return `${running}${composer}${renderLog(p)}`;
@@ -383,6 +388,7 @@ function renderEntry(p,e){
         <span>${fmtTime(e.start)} – ${fmtTime(e.end)}</span>
         ${tags.map(t=>`<span class="pill" style="--chip-c:${t.color}">${escapeHtml(t.name)}</span>`).join('')}
       </div>
+      ${e.description?`<div class="entry-desc">${escapeHtml(e.description)}</div>`:''}
     </div>
     <div class="entry-actions">
       <button class="icon-btn" data-action="restart-entry" data-id="${e.id}" title="Start new timer like this">▶</button>
@@ -398,6 +404,7 @@ function renderEntryEdit(p,e){
       <input type="text" name="title" value="${escapeHtml(e.title)}">
       <input type="datetime-local" name="start" value="${toLocalInput(e.start)}">
       <input type="datetime-local" name="end" value="${toLocalInput(e.end)}">
+      <input type="text" name="description" placeholder="Description" value="${escapeHtml(e.description||'')}" style="width:100%">
       ${renderTagRow(p, e.tagIds).replaceAll('data-action="toggle-tag"','data-action="toggle-edit-tag"')}
       <button class="linklike" type="submit">Save</button>
       <button class="linklike" type="button" data-action="cancel-edit-entry">Cancel</button>
@@ -551,7 +558,7 @@ document.addEventListener('click', e=>{
   if(a==='start'){
     const d = pending[p.id] || {title:'',tagIds:[]};
     const id=uid();
-    state.entries.push({id, projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], start:Date.now(), end:null, pauseStart:null});
+    state.entries.push({id, projectId:p.id, title:d.title.trim()||'Untitled', tagIds:[...d.tagIds], description:(d.description||'').trim(), start:Date.now(), end:null, pauseStart:null});
     delete pending[p.id]; saveEntry(id); render(); return;
   }
   if(a==='pause'){
@@ -577,7 +584,7 @@ document.addEventListener('click', e=>{
   if(a==='restart-entry'){
     const src=state.entries.find(x=>x.id===el.dataset.id);
     const id=uid();
-    state.entries.push({id, projectId:p.id, title:src.title, tagIds:[...src.tagIds], start:Date.now(), end:null, pauseStart:null});
+    state.entries.push({id, projectId:p.id, title:src.title, tagIds:[...src.tagIds], description:src.description||'', start:Date.now(), end:null, pauseStart:null});
     saveEntry(id); render(); return;
   }
   if(a==='edit-entry'){ editingEntryId=el.dataset.id; render(); return; }
@@ -612,10 +619,22 @@ document.addEventListener('click', e=>{
   if(a==='download-data'){ downloadData(); return; }
 });
 
+const descSaveTimers={}; // per-entry debounce, so typing a description doesn't spam Firestore
 document.addEventListener('input', e=>{
   if(e.target.matches('[data-action="draft-title"]')){
     const p=curProject();
     const d=pending[p.id]||{title:'',tagIds:[]}; d.title=e.target.value; pending[p.id]=d;
+  }
+  if(e.target.matches('[data-action="draft-desc"]')){
+    const p=curProject();
+    const d=pending[p.id]||{title:'',tagIds:[]}; d.description=e.target.value; pending[p.id]=d;
+  }
+  if(e.target.matches('[data-action="entry-desc"]')){
+    const id=e.target.dataset.id;
+    const t=state.entries.find(x=>x.id===id); if(!t) return;
+    t.description=e.target.value;
+    clearTimeout(descSaveTimers[id]);
+    descSaveTimers[id]=setTimeout(()=>saveEntry(id), 400);
   }
 });
 
@@ -635,6 +654,7 @@ document.addEventListener('submit', e=>{
   const fd=new FormData(form);
   const start=new Date(fd.get('start')).getTime(), end=new Date(fd.get('end')).getTime();
   en.title=(fd.get('title')||'').trim()||'Untitled';
+  en.description=(fd.get('description')||'').trim();
   if(!isNaN(start)) en.start=start;
   if(!isNaN(end)) en.end=Math.max(end, en.start);
   editingEntryId=null; saveEntry(en.id); render();
