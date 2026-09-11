@@ -1,5 +1,7 @@
 # Time Tracker
 
+having some fun with claude i suppose...
+
 ## Deploy (GitHub Pages, free)
 GitHub Actions-free Pages (Settings → Pages →　Deploy from branch → `main` / `/ (root)`).
 
