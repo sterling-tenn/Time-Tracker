@@ -128,6 +128,10 @@ let authUser=null, syncDoc=null, pushTimer=null, authError=null;
 firebase.initializeApp(firebaseConfig);
 firebase.auth().onAuthStateChanged(user=>{
   authUser=user; authError=null;
+  // Reset in-memory state on every identity change (sign-out, sign-in, switching
+  // accounts) so a fresh/different account never briefly shows the previous
+  // session's data - it stays cleared until (if) this account's own doc loads.
+  state.projects=[]; state.tags=[]; state.entries=[]; state.currentProjectId=null;
   syncDoc = user ? firebase.firestore().collection('tt').doc(user.uid) : null;
   if(syncDoc){
     syncDoc.onSnapshot(snap=>{
