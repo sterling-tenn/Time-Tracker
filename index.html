@@ -115,6 +115,9 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
 .statcard .label{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
 .statcard .val{color:var(--green);font-size:22px;font-weight:700;font-family:var(--mono)}
 .statcard .sub{color:var(--muted);font-size:12px;margin-top:4px}
+.stats-divider{display:flex;align-items:center;gap:10px;margin:4px 0 20px}
+.stats-divider::before,.stats-divider::after{content:'';flex:1;border-top:1px solid var(--border)}
+.stats-divider span{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
 
 .section-label{color:var(--muted);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin:20px 2px 10px}
 .range-picker{display:flex;gap:10px;flex-wrap:wrap}
@@ -123,8 +126,9 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
 .chart-container{display:flex;gap:10px}
 .chart-yaxis{flex:none;display:flex;flex-direction:column;justify-content:space-between;height:120px;color:var(--muted);font-size:11px;text-align:right}
 .chart-main{flex:1;min-width:0}
+.chart-scroll{overflow-x:auto}
 .chart{display:flex;align-items:flex-end;gap:4px;height:120px;padding:0 2px}
-.chart .bar{flex:1;background:var(--green);border-radius:2px 2px 0 0;min-height:2px}
+.chart .bar{flex:1;min-width:6px;background:var(--green);border-radius:2px 2px 0 0;min-height:2px}
 .chart .bar.empty{background:#333}
 .chart-labels{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;padding:4px 2px 0}
 .chart-tooltip{
@@ -151,6 +155,17 @@ button{background:none;border:none;cursor:pointer;-webkit-user-select:none;user-
   .tagbar-row .name{font-size:13px}
   .tagbar-row .val{font-size:11px}
 }
+
+.pie-wrap{display:flex;gap:20px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+.pie-svg{flex:none}
+.pie-slice{cursor:pointer;stroke:var(--bg);stroke-width:1}
+.pie-center-total{font-size:15px;font-weight:700;font-family:var(--mono)}
+.pie-center-label{font-size:9px;text-transform:uppercase;letter-spacing:.05em}
+.pie-legend{flex:1;min-width:160px;display:flex;flex-direction:column;gap:8px}
+.pie-legend-row{display:flex;align-items:center;gap:8px;font-size:13px}
+.pie-legend-row .swatch2{width:12px;height:12px;border-radius:3px;flex:none}
+.pie-legend-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pie-legend-row .val{color:var(--muted);font-family:var(--mono);font-size:12px;white-space:nowrap}
 
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px}
 .modal{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:340px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.6)}
@@ -186,7 +201,7 @@ let editingTagId=null; // tag whose color/name popover is open, not persisted
 let tagEditorRendered=false; // reset each render() - see renderTagRow
 let editingProjectId=null; // project whose color/name popover is open (inside the project menu), not persisted
 let pendingDelete=null; // {type:'tag'|'project', id, name, checked}, not persisted - drives the delete-confirmation modal
-let statsRange='30d'; // '7d' | '30d' | '90d' | 'month' | 'all' | 'custom', not persisted
+let statsRange='all'; // '7d' | '30d' | '90d' | 'month' | 'all' | 'custom', not persisted
 let customStart=null, customEnd=null; // yyyy-mm-dd, only used when statsRange==='custom'
 let projectMenuOpen=false; // not persisted
 const RANGE_LABELS={'7d':'7 days','30d':'30 days','90d':'90 days','month':'This month','all':'All time','custom':'Custom'};
@@ -586,22 +601,36 @@ function renderStatsTab(p){
     days.push({key:k, val: byDay[k]||0, date:d, tagBreakdown});
   }
   const maxDay=Math.max(1,...days.map(d=>d.val));
+  // Bars shrink to fill the available width up to a point, but a long "all time"
+  // history would otherwise squeeze hundreds of days into unreadably thin slivers -
+  // past that, force a minimum width per bar and let the chart scroll horizontally
+  // instead (the y-axis and everything else stays put).
+  const MIN_BAR=6, BAR_GAP=4;
+  const chartMinWidth = days.length ? days.length*MIN_BAR + (days.length-1)*BAR_GAP : 0;
   const fmtAxisDate=d=> (d.getFullYear()===today.getFullYear()&&d.getMonth()===today.getMonth()&&d.getDate()===today.getDate())
     ? 'today' : d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
-  const untaggedTotal=entries.filter(e=>!e.tagIds.length).reduce((s,e)=>s+entryDur(e),0);
-  const tagTotals=[...projectTags(p.id).map(t=>({t, val: entries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)})),
+  // "Time per tag" and the tag-combination pie both track the selected date range
+  // (the stat cards above stay all-time) - reuse the day keys already computed for
+  // the bar chart rather than re-deriving the range's start/end filtering logic.
+  const rangeDayKeys=new Set(days.map(d=>d.key));
+  const rangedEntries=entries.filter(e=>rangeDayKeys.has(dayKey(e.start)));
+  const rangedTotal=rangedEntries.reduce((s,e)=>s+entryDur(e),0);
+  const untaggedTotal=rangedEntries.filter(e=>!e.tagIds.length).reduce((s,e)=>s+entryDur(e),0);
+  const tagTotals=[...projectTags(p.id).map(t=>({t, val: rangedEntries.filter(e=>e.tagIds.includes(t.id)).reduce((s,e)=>s+entryDur(e),0)})),
       ...(untaggedTotal>0 ? [{t:{name:'(no tag)',color:'var(--muted)'}, val: untaggedTotal}] : [])]
     .sort((a,b)=> a.t.name==='(no tag)'?1 : b.t.name==='(no tag)'?-1 : b.val-a.val);
   const maxTag=Math.max(1,...tagTotals.map(x=>x.val));
 
   return `
+  <div class="stats-divider"><span>All time</span></div>
   <div class="statcards">
     <div class="statcard"><div class="label">Total Time</div><div class="val">${fmtDur(total)}</div></div>
     <div class="statcard"><div class="label">Sessions</div><div class="val">${entries.length}</div></div>
     <div class="statcard"><div class="label">Longest Session</div><div class="val">${longest?fmtDur(entryDur(longest)):'—'}</div><div class="sub">${longest?escapeHtml(longest.title):''}</div></div>
     <div class="statcard"><div class="label">Day Record</div><div class="val">${recordDate?fmtDur(byDay[recordKey]):'—'}</div><div class="sub">${recordDate?dayLabel(recordDate.start):''}</div></div>
   </div>
+  <div class="stats-divider"><span>Selected range</span></div>
   <div class="section-label row between" style="align-items:flex-start;flex-wrap:wrap;gap:8px">
     <span>${rangeLabel}</span>
     <span class="row range-picker">
@@ -621,7 +650,9 @@ function renderStatsTab(p){
       <span>0h</span>
     </div>
     <div class="chart-main">
-      <div class="chart">${days.map(d=>`<div class="bar ${d.val?'':'empty'}" style="height:${Math.max(2,d.val/maxDay*100)}%" data-date="${escapeHtml(dayLabel(d.date))}" data-val="${escapeHtml(fmtDur(d.val))}" data-tags="${escapeHtml(JSON.stringify(d.tagBreakdown))}"></div>`).join('')}</div>
+      <div class="chart-scroll">
+        <div class="chart" style="min-width:${chartMinWidth}px">${days.map(d=>`<div class="bar ${d.val?'':'empty'}" style="height:${Math.max(2,d.val/maxDay*100)}%" data-date="${escapeHtml(dayLabel(d.date))}" data-val="${escapeHtml(fmtDur(d.val))}" data-tags="${escapeHtml(JSON.stringify(d.tagBreakdown))}"></div>`).join('')}</div>
+      </div>
       <div class="chart-labels"><span>${days.length?fmtAxisDate(days[0].date):''}</span><span>${days.length?fmtAxisDate(days[days.length-1].date):''}</span></div>
     </div>
   </div>
@@ -632,7 +663,87 @@ function renderStatsTab(p){
       <div class="tagbar-track"><div class="tagbar-fill" style="width:${x.val/maxTag*100}%;background:${x.t.color}"></div></div>
       <span class="val">${fmtDur(x.val)}</span>
     </div>`).join(''):`<div class="empty-log">No tags yet.</div>`}
+  ${renderTagPie(rangedEntries, rangedTotal)}
   `;
+}
+
+// ---------- tag combination pie ----------
+// Entries can carry more than one tag, so a per-tag total (see "Time per tag"
+// above) double-counts on purpose - that's fine for independent bars, but a pie
+// implies slices sum to the whole. To keep that true, each entry is bucketed by
+// its exact set of tags (sorted, so tag order doesn't split a combo in two) and
+// counted exactly once, under whichever combination it actually has.
+function polarToXY(cx,cy,r,deg){ const rad=(deg-90)*Math.PI/180; return {x:cx+r*Math.cos(rad), y:cy+r*Math.sin(rad)}; }
+function arcPath(cx,cy,r,startDeg,endDeg){
+  const s=polarToXY(cx,cy,r,startDeg), e=polarToXY(cx,cy,r,endDeg);
+  const largeArc = endDeg-startDeg>180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)} Z`;
+}
+// A combo of 2+ tags gets a smooth diagonal blend through each tag's color,
+// instead of a solid color, so it reads as "made of these tags" rather than
+// being mistaken for some other tag's own solid slice.
+function blendGradient(id, colors){
+  const stops=colors.map((c,i)=>`<stop offset="${colors.length>1?i/(colors.length-1)*100:0}%" stop-color="${c}"/>`).join('');
+  return `<linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">${stops}</linearGradient>`;
+}
+function renderTagPie(entries, total){
+  const tagById=new Map(state.tags.map(t=>[t.id,t]));
+  const comboMap=new Map();
+  for(const e of entries){
+    const ids=[...e.tagIds].sort();
+    const key=ids.join(',');
+    if(!comboMap.has(key)) comboMap.set(key,{tagIds:ids,val:0});
+    comboMap.get(key).val += entryDur(e);
+  }
+  const combos=[...comboMap.values()].map(c=>{
+    const tagObjs=c.tagIds.map(id=>tagById.get(id)).filter(Boolean);
+    const label=tagObjs.length ? tagObjs.map(t=>t.name).join(' + ') : '(no tag)';
+    const colors=tagObjs.length ? tagObjs.map(t=>t.color) : ['var(--muted)'];
+    return {val:c.val, label, colors};
+  }).filter(c=>c.val>0).sort((a,b)=>b.val-a.val);
+
+  let body;
+  if(!combos.length){
+    body=`<div class="empty-log">No data yet.</div>`;
+  } else {
+    const cx=60,cy=60,r=54,rInner=32;
+    let angle=0;
+    const defs=[];
+    const slices=combos.map((c,i)=>{
+      const pct= total ? c.val/total : 0;
+      const startA=angle, endA=angle+pct*360;
+      angle=endA;
+      let fill=c.colors[0];
+      if(c.colors.length>1){
+        const pid=`pie-grad-${i}`;
+        defs.push(blendGradient(pid,c.colors));
+        fill=`url(#${pid})`;
+      }
+      return {...c, startA, endA, fill, pct};
+    });
+    const sliceEls = slices.length===1
+      ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${slices[0].fill}" class="pie-slice" data-label="${escapeHtml(slices[0].label)}" data-val="${escapeHtml(fmtDur(slices[0].val))}" data-pct="${Math.round(slices[0].pct*100)}%"></circle>`
+      : slices.map(s=>`<path d="${arcPath(cx,cy,r,s.startA,s.endA)}" fill="${s.fill}" class="pie-slice" data-label="${escapeHtml(s.label)}" data-val="${escapeHtml(fmtDur(s.val))}" data-pct="${Math.round(s.pct*100)}%"></path>`).join('');
+    body=`
+    <div class="pie-wrap">
+      <svg class="pie-svg" viewBox="0 0 120 120" width="140" height="140">
+        <defs>${defs.join('')}</defs>
+        ${sliceEls}
+        <circle cx="${cx}" cy="${cy}" r="${rInner}" fill="var(--bg)"></circle>
+        <text x="${cx}" y="${cy-3}" text-anchor="middle" class="pie-center-total" fill="var(--text)">${fmtDurShort(total)}</text>
+        <text x="${cx}" y="${cy+11}" text-anchor="middle" class="pie-center-label" fill="var(--muted)">total</text>
+      </svg>
+      <div class="pie-legend">
+        ${combos.map(c=>`
+          <div class="pie-legend-row">
+            <span class="swatch2" style="${c.colors.length>1?`background:linear-gradient(90deg, ${c.colors.join(',')})`:`background:${c.colors[0]}`}"></span>
+            <span class="name">${escapeHtml(c.label)}</span>
+            <span class="val">${fmtDur(c.val)} · ${total?Math.round(c.val/total*100):0}%</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+  return body;
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -651,6 +762,7 @@ function downloadData(){
 
 // ---------- actions ----------
 const chartTooltip=document.getElementById('chart-tooltip');
+const HOVER_SEL='.chart .bar, .pie-slice';
 function tooltipHtml(bar){
   const tags=JSON.parse(bar.dataset.tags||'[]');
   const tagsHtml=tags.length?`<div class="tt-tags">${tags.map(t=>
@@ -658,31 +770,35 @@ function tooltipHtml(bar){
   ).join('')}</div>`:'';
   return `<div class="tt-date">${bar.dataset.date}</div><div class="tt-val">${bar.dataset.val}</div>${tagsHtml}`;
 }
+function pieTooltipHtml(slice){
+  return `<div class="tt-date">${escapeHtml(slice.dataset.label)}</div><div class="tt-val">${slice.dataset.val} · ${slice.dataset.pct}</div>`;
+}
+function anyTooltipHtml(el){ return el.classList.contains('pie-slice') ? pieTooltipHtml(el) : tooltipHtml(el); }
 document.addEventListener('mouseover', e=>{
-  const bar=e.target.closest('.chart .bar');
-  if(!bar) return;
-  chartTooltip.innerHTML=tooltipHtml(bar);
+  const el=e.target.closest(HOVER_SEL);
+  if(!el) return;
+  chartTooltip.innerHTML=anyTooltipHtml(el);
   chartTooltip.style.left=(e.clientX+14)+'px';
   chartTooltip.style.top=(e.clientY+14)+'px';
   chartTooltip.style.display='block';
 });
 document.addEventListener('mousemove', e=>{
   if(chartTooltip.style.display!=='block') return;
-  if(!e.target.closest('.chart .bar')){ chartTooltip.style.display='none'; return; }
+  if(!e.target.closest(HOVER_SEL)){ chartTooltip.style.display='none'; return; }
   chartTooltip.style.left=(e.clientX+14)+'px';
   chartTooltip.style.top=(e.clientY+14)+'px';
 });
 document.addEventListener('mouseout', e=>{
-  if(e.target.closest('.chart .bar') && !e.relatedTarget?.closest?.('.chart .bar')) chartTooltip.style.display='none';
+  if(e.target.closest(HOVER_SEL) && !e.relatedTarget?.closest?.(HOVER_SEL)) chartTooltip.style.display='none';
 });
-// Touch has no hover, so mouseover/mousemove above never fire on phones - tap a bar to
-// show its tooltip instead (positioned above the touch point so the finger doesn't
+// Touch has no hover, so mouseover/mousemove above never fire on phones - tap a bar/slice
+// to show its tooltip instead (positioned above the touch point so the finger doesn't
 // cover it), tap anywhere else to dismiss.
 document.addEventListener('touchstart', e=>{
-  const bar=e.target.closest('.chart .bar');
-  if(!bar){ chartTooltip.style.display='none'; return; }
+  const el=e.target.closest(HOVER_SEL);
+  if(!el){ chartTooltip.style.display='none'; return; }
   const touch=e.touches[0];
-  chartTooltip.innerHTML=tooltipHtml(bar);
+  chartTooltip.innerHTML=anyTooltipHtml(el);
   chartTooltip.style.left=Math.min(touch.clientX+14, window.innerWidth-180)+'px';
   chartTooltip.style.top=Math.max(0, touch.clientY-70)+'px';
   chartTooltip.style.display='block';
