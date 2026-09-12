@@ -200,7 +200,7 @@ let editingEntryId=null;
 let editingTagId=null; // tag whose color/name popover is open, not persisted
 let tagEditorRendered=false; // reset each render() - see renderTagRow
 let editingProjectId=null; // project whose color/name popover is open (inside the project menu), not persisted
-let pendingDelete=null; // {type:'tag'|'project', id, name, checked}, not persisted - drives the delete-confirmation modal
+let pendingDelete=null; // {type:'tag'|'project'|'entry', id, name, checked}, not persisted - drives the delete-confirmation modal
 let statsRange='all'; // '7d' | '30d' | '90d' | 'month' | 'all' | 'custom', not persisted
 let customStart=null, customEnd=null; // yyyy-mm-dd, only used when statsRange==='custom'
 let projectMenuOpen=false; // not persisted
@@ -318,11 +318,12 @@ function entryDur(e){ const end = isRunning(e) ? (e.pauseStart||Date.now()) : e.
 function renderModals(){
   const root=document.getElementById('modal-root');
   if(!pendingDelete){ root.innerHTML=''; return; }
-  const isProject=pendingDelete.type==='project';
-  const noun=isProject?'project':'tag';
-  const detail=isProject
-    ? 'This also deletes all its tags and logged sessions.'
-    : 'It will be removed from any sessions using it.';
+  const noun={project:'project', tag:'tag', entry:'session'}[pendingDelete.type];
+  const detail={
+    project:'This also deletes all its tags and logged sessions.',
+    tag:'It will be removed from any sessions using it.',
+    entry:'This permanently removes the logged time.',
+  }[pendingDelete.type];
   root.innerHTML=`<div class="modal-overlay" data-action="cancel-delete">
     <div class="modal" data-action="modal-noop">
       <h3>Delete ${noun} "${escapeHtml(pendingDelete.name)}"?</h3>
@@ -878,14 +879,20 @@ document.addEventListener('click', e=>{
       toRemove.forEach(e=>deleteEntryRemote(e.id));
       if(state.currentProjectId===pr.id) state.currentProjectId = state.projects[0]?.id||null;
       editingProjectId=null;
-    } else {
+      saveMeta();
+    } else if(pendingDelete.type==='tag'){
       const t=state.tags.find(x=>x.id===pendingDelete.id);
       state.tags=state.tags.filter(x=>x.id!==t.id);
       const affected=state.entries.filter(en=>en.tagIds.includes(t.id));
       affected.forEach(en=>{ en.tagIds=en.tagIds.filter(id=>id!==t.id); saveEntry(en.id); });
       editingTagId=null;
+      saveMeta();
+    } else {
+      state.entries=state.entries.filter(x=>x.id!==pendingDelete.id);
+      deleteEntryRemote(pendingDelete.id);
+      if(editingEntryId===pendingDelete.id) editingEntryId=null;
     }
-    pendingDelete=null; saveMeta(); render(); return;
+    pendingDelete=null; render(); return;
   }
   if(a==='toggle-tag'){
     const tid=el.dataset.id, timerId=el.dataset.timer;
@@ -941,11 +948,8 @@ document.addEventListener('click', e=>{
   if(a==='edit-entry'){ editingEntryId=el.dataset.id; render(); return; }
   if(a==='cancel-edit-entry'){ editingEntryId=null; render(); return; }
   if(a==='delete-entry'){
-    if(confirm('Delete this session?')){
-      const id=el.dataset.id;
-      state.entries=state.entries.filter(x=>x.id!==id);
-      deleteEntryRemote(id);
-    }
+    const en=state.entries.find(x=>x.id===el.dataset.id);
+    if(en) pendingDelete={type:'entry', id:en.id, name:en.title, checked:false};
     render(); return;
   }
   if(a==='toggle-edit-tag'){
