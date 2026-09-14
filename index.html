@@ -481,6 +481,7 @@ function renderColorEditor(x, {nameAction, colorAction, customAction, deleteActi
 
 function renderTimerTab(p){
   const draft = pending[p.id] || {title:'', tagIds:[], description:''};
+  const pastTitles = [...new Set(state.entries.filter(e=>e.projectId===p.id).sort((a,b)=>b.start-a.start).map(e=>e.title))];
   const runningTimers = state.entries.filter(e=>e.projectId===p.id && isRunning(e));
   const running = runningTimers.map(t=>`
     <div class="card">
@@ -501,7 +502,8 @@ function renderTimerTab(p){
     <div class="card">
       <div class="row">
         <div class="compose">
-          <input type="text" placeholder="Title" value="${escapeHtml(draft.title)}" data-action="draft-title">
+          <input type="text" placeholder="Title" value="${escapeHtml(draft.title)}" data-action="draft-title" list="titles-${p.id}">
+          <datalist id="titles-${p.id}">${pastTitles.map(t=>`<option value="${escapeHtml(t)}">`).join('')}</datalist>
         </div>
         <button class="btn-start" data-action="start" ${draft.title.trim()?'':'disabled title="Enter a title to start the timer"'}>▶ Start</button>
       </div>
